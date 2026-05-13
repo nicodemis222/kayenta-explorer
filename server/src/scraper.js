@@ -1,5 +1,7 @@
 import { searchRealtorHomes, searchRealtorLand, searchRealtorRentals, searchRealtorFarmland, searchRealtorCabins } from './realtor.js';
 import { searchRedfinHomes, searchRedfinLand, searchRedfinRentals } from './redfin.js';
+import { searchHaydenFarmland, searchHaydenCabins } from './hayden.js';
+import { searchUnitedCountryFarmland, searchUnitedCountryCabins } from './unitedcountry.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -241,38 +243,59 @@ export async function runScrapeForArea({ mode, polygon }) {
 
   const cityNames = cities.map(c => c.name);
   const startedAt = new Date().toISOString();
-  let listings = [];
 
-  try {
-    if (mode === 'farmland') {
-      listings = await searchRealtorFarmland(cityNames);
-    } else if (mode === 'cabin') {
-      listings = await searchRealtorCabins(cityNames);
-    } else {
-      throw new Error(`Unknown mode: ${mode}`);
+  // Run all sources in parallel; collect listings from those that succeed.
+  // Each source is wrapped so a single failure doesn't take down the whole scrape.
+  async function safe(label, fn) {
+    try {
+      return { label, items: await fn() };
+    } catch (err) {
+      console.error(`  [${label}] error: ${err.message}`);
+      db.prepare(`
+        INSERT INTO scrape_log (source, type, status, error, started_at, completed_at)
+        VALUES (?, ?, 'error', ?, ?, ?)
+      `).run(label, mode, err.message, startedAt, new Date().toISOString());
+      return { label, items: [] };
     }
-  } catch (err) {
-    console.error(`  Area scrape error: ${err.message}`);
-    db.prepare(`
-      INSERT INTO scrape_log (source, type, status, error, started_at, completed_at)
-      VALUES ('realtor-area', ?, 'error', ?, ?, ?)
-    `).run(mode, err.message, startedAt, new Date().toISOString());
-    return { total_found: 0, new_listings: 0, cities: cities.length, error: err.message };
   }
 
-  // Deduplicate and upsert
-  const unique = deduplicateListings(listings);
+  let sourceResults;
+  if (mode === 'farmland') {
+    sourceResults = await Promise.all([
+      safe('realtor-area',  () => searchRealtorFarmland(cityNames)),
+      safe('hayden-area',   () => searchHaydenFarmland(polygon)),
+      safe('uc-area',       () => searchUnitedCountryFarmland(polygon)),
+    ]);
+  } else if (mode === 'cabin') {
+    sourceResults = await Promise.all([
+      safe('realtor-area',  () => searchRealtorCabins(cityNames)),
+      safe('hayden-area',   () => searchHaydenCabins(polygon)),
+      safe('uc-area',       () => searchUnitedCountryCabins(polygon)),
+    ]);
+  } else {
+    return { total_found: 0, new_listings: 0, cities: cities.length, error: `Unknown mode: ${mode}` };
+  }
+
+  // Merge across sources and deduplicate by address; prefer Realtor (richer
+  // metadata: sqft/beds/baths) over Hayden/UC.
+  const merged = [];
+  for (const { items } of sourceResults) merged.push(...items);
+  const unique = deduplicateListings(merged);
+
   let groupNew = 0;
   for (const listing of unique) {
     const result = upsertListing(listing);
     if (result.isNew) groupNew++;
   }
 
-  db.prepare(`
-    INSERT INTO scrape_log (source, type, status, listings_found, listings_new, started_at, completed_at)
-    VALUES ('realtor-area', ?, 'success', ?, ?, ?, ?)
-  `).run(mode, unique.length, groupNew, startedAt, new Date().toISOString());
+  // Per-source success rows in the log
+  for (const { label, items } of sourceResults) {
+    db.prepare(`
+      INSERT INTO scrape_log (source, type, status, listings_found, listings_new, started_at, completed_at)
+      VALUES (?, ?, 'success', ?, 0, ?, ?)
+    `).run(label, mode, items.length, startedAt, new Date().toISOString());
+  }
 
-  console.log(`  ✓ ${unique.length} ${mode} listings saved (${groupNew} new)`);
+  console.log(`  ✓ ${unique.length} ${mode} listings after merge/dedup (${groupNew} new)`);
   return { total_found: unique.length, new_listings: groupNew, cities: cities.length };
 }
