@@ -229,57 +229,77 @@ export async function runScrape() {
 
 /**
  * Run a scrape for a user-drawn area (mode = 'farmland' | 'cabin').
+ *
  * Polygon is an array of [lat, lng] vertices. Finds cities inside the polygon
- * and queries Realtor for each. Caller filters listings geographically when displaying.
+ * and queries each source (Realtor/Hayden/UC). Sources run in parallel; each
+ * one's results are emitted to `onProgress` as soon as it finishes so the
+ * caller can stream partial listings to the client immediately.
+ *
+ * onProgress event shapes:
+ *   { type: 'status',        message: '...' }
+ *   { type: 'source-start',  source: 'Realtor.com' }
+ *   { type: 'source-done',   source: 'Realtor.com', count, items: [...] }
+ *   { type: 'source-error',  source: 'Realtor.com', error }
+ *   { type: 'final',         listings: [...deduped...] }
  */
-export async function runScrapeForArea({ mode, polygon }) {
+export async function runScrapeForArea({ mode, polygon, onProgress = () => {} }) {
   const cities = citiesWithinPolygon(polygon);
   const centroid = polygonCentroid(polygon);
   console.log(`\n── Area scrape (${mode}) — ${cities.length} cities inside polygon (~centroid ${centroid?.lat.toFixed(3)}, ${centroid?.lng.toFixed(3)}, ${polygon.length} vertices) ──`);
 
+  onProgress({ type: 'status', message: `Found ${cities.length} cities inside your area` });
+
   if (cities.length === 0) {
+    onProgress({ type: 'final', listings: [] });
     return { total_found: 0, new_listings: 0, cities: 0, message: 'No cities inside polygon' };
   }
 
   const cityNames = cities.map(c => c.name);
   const startedAt = new Date().toISOString();
 
-  // Run all sources in parallel; collect listings from those that succeed.
-  // Each source is wrapped so a single failure doesn't take down the whole scrape.
-  async function safe(label, fn) {
+  // Run a source, emit progress events, isolate its failures so other sources still complete.
+  async function runSource(label, fn) {
+    onProgress({ type: 'source-start', source: label, message: `Querying ${label}…` });
     try {
-      return { label, items: await fn() };
+      const items = await fn();
+      onProgress({ type: 'source-done', source: label, count: items.length, items });
+      db.prepare(`
+        INSERT INTO scrape_log (source, type, status, listings_found, listings_new, started_at, completed_at)
+        VALUES (?, ?, 'success', ?, 0, ?, ?)
+      `).run(label, mode, items.length, startedAt, new Date().toISOString());
+      return items;
     } catch (err) {
       console.error(`  [${label}] error: ${err.message}`);
+      onProgress({ type: 'source-error', source: label, error: err.message });
       db.prepare(`
         INSERT INTO scrape_log (source, type, status, error, started_at, completed_at)
         VALUES (?, ?, 'error', ?, ?, ?)
       `).run(label, mode, err.message, startedAt, new Date().toISOString());
-      return { label, items: [] };
+      return [];
     }
   }
 
   let sourceResults;
   if (mode === 'farmland') {
     sourceResults = await Promise.all([
-      safe('realtor-area',  () => searchRealtorFarmland(cityNames)),
-      safe('hayden-area',   () => searchHaydenFarmland(polygon)),
-      safe('uc-area',       () => searchUnitedCountryFarmland(polygon)),
+      runSource('Realtor.com',    () => searchRealtorFarmland(cityNames)),
+      runSource('Hayden Outdoors', () => searchHaydenFarmland(polygon)),
+      runSource('United Country',  () => searchUnitedCountryFarmland(polygon)),
     ]);
   } else if (mode === 'cabin') {
     sourceResults = await Promise.all([
-      safe('realtor-area',  () => searchRealtorCabins(cityNames)),
-      safe('hayden-area',   () => searchHaydenCabins(polygon)),
-      safe('uc-area',       () => searchUnitedCountryCabins(polygon)),
+      runSource('Realtor.com',    () => searchRealtorCabins(cityNames)),
+      runSource('Hayden Outdoors', () => searchHaydenCabins(polygon)),
+      runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
     ]);
   } else {
+    onProgress({ type: 'final', listings: [] });
     return { total_found: 0, new_listings: 0, cities: cities.length, error: `Unknown mode: ${mode}` };
   }
 
-  // Merge across sources and deduplicate by address; prefer Realtor (richer
-  // metadata: sqft/beds/baths) over Hayden/UC.
-  const merged = [];
-  for (const { items } of sourceResults) merged.push(...items);
+  onProgress({ type: 'status', message: 'Merging and deduplicating results…' });
+
+  const merged = sourceResults.flat();
   const unique = deduplicateListings(merged);
 
   let groupNew = 0;
@@ -288,14 +308,7 @@ export async function runScrapeForArea({ mode, polygon }) {
     if (result.isNew) groupNew++;
   }
 
-  // Per-source success rows in the log
-  for (const { label, items } of sourceResults) {
-    db.prepare(`
-      INSERT INTO scrape_log (source, type, status, listings_found, listings_new, started_at, completed_at)
-      VALUES (?, ?, 'success', ?, 0, ?, ?)
-    `).run(label, mode, items.length, startedAt, new Date().toISOString());
-  }
-
   console.log(`  ✓ ${unique.length} ${mode} listings after merge/dedup (${groupNew} new)`);
+  onProgress({ type: 'final', listings: unique, total: unique.length, new: groupNew });
   return { total_found: unique.length, new_listings: groupNew, cities: cities.length };
 }

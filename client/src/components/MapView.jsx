@@ -60,17 +60,9 @@ function FitToPolygon({ polygon }) {
   return null;
 }
 
-// Pans to a listing's coordinates and pops its marker open.
-function PanToFocused({ focusedListingId, listings }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!focusedListingId) return;
-    const l = listings.find(x => x.id === focusedListingId);
-    if (!l || !l.latitude || !l.longitude) return;
-    map.flyTo([l.latitude, l.longitude], Math.max(map.getZoom(), 11), { duration: 0.6 });
-  }, [focusedListingId, listings, map]);
-  return null;
-}
+// (Map pan-on-focus was previously here; removed in favor of color-only
+// highlighting on the matching marker to avoid wobbly map motion while
+// the user scrolls cards.)
 
 export default function MapView({
   // active drawing state when user is creating a new search
@@ -176,7 +168,6 @@ export default function MapView({
 
         <InvalidateOnResize />
         <FitToPolygon polygon={displayPolygon} />
-        <PanToFocused focusedListingId={focusedListingId} listings={listings} />
 
         {/* Saved-search polygon */}
         {(!drawing?.phase || drawing.phase === 'idle' || drawing.phase === 'idle-ready') && displayPolygon && displayPolygon.length >= 3 && (
@@ -216,12 +207,22 @@ export default function MapView({
           />
         ))}
 
-        {/* Listing markers */}
-        {listings.map(l => (
-          l.latitude && l.longitude && (
-            <Marker
+        {/* Listing markers — focused one renders in accent color and slightly larger
+            so the user can find the card's property without the map jumping around. */}
+        {listings.map(l => {
+          if (!l.latitude || !l.longitude) return null;
+          const isFocused = focusedListingId === l.id;
+          return (
+            <CircleMarker
               key={l.id}
-              position={[l.latitude, l.longitude]}
+              center={[l.latitude, l.longitude]}
+              radius={isFocused ? 10 : 6}
+              pathOptions={{
+                color: isFocused ? '#c2785c' : '#1e3a8a',
+                fillColor: isFocused ? '#c2785c' : '#3b82f6',
+                fillOpacity: 1,
+                weight: 2,
+              }}
               eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
             >
               <Popup>
@@ -232,9 +233,9 @@ export default function MapView({
                   {l.url && <a href={l.url} target="_blank" rel="noopener noreferrer">View listing</a>}
                 </div>
               </Popup>
-            </Marker>
-          )
-        ))}
+            </CircleMarker>
+          );
+        })}
       </MapContainer>
 
       {drawing?.phase === 'idle-ready' && (

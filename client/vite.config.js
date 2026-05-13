@@ -24,7 +24,15 @@ export default defineConfig({
     // strictPort: false → Vite auto-picks the next free port if the preferred one is taken
     strictPort: false,
     proxy: {
-      '/api': `http://localhost:${apiPort}`,
+      '/api': {
+        target: `http://localhost:${apiPort}`,
+        changeOrigin: true,
+        // Don't buffer responses — required so Server-Sent Events
+        // (POST /api/searches/:id/run/stream) flush event-by-event.
+        selfHandleResponse: false,
+        buffer: false,
+        ws: true,
+      },
     },
   },
 });

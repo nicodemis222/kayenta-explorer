@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MapView from '../components/MapView.jsx';
 import SearchSidebar from '../components/SearchSidebar.jsx';
 import ListingCard from '../components/ListingCard.jsx';
-import { getSearches, createSearch, deleteSearch, rerunSearch, renameSearch, getSearchListings } from '../api.js';
+import { getSearches, createSearch, deleteSearch, rerunSearch, runSearchStream, renameSearch, getSearchListings } from '../api.js';
 
 const FEATURES = {
   farmland: [
@@ -34,10 +34,8 @@ export default function ExploreView() {
   const [activeSearch, setActiveSearch] = useState(null);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
-  // Distinct from `loading` (fast fetch): this flag is true only when a
-  // scrape is running so we can show a center-screen overlay.
-  const [scraping, setScraping] = useState(false);
-  const [scrapingLabel, setScrapingLabel] = useState('');
+  // Streaming-scrape state: live telemetry shown in a bottom ribbon while a search runs.
+  const [scrapeStatus, setScrapeStatus] = useState(null); // null | { message, label, isRunning }
   // drawing state: { phase: 'idle'|'idle-ready'|'drawing'|'done', vertices: [[lat,lng], ...] }
   const [drawing, setDrawing] = useState({ phase: 'idle', vertices: [] });
   const [featureFilters, setFeatureFilters] = useState({});
@@ -161,19 +159,76 @@ export default function ExploreView() {
     }
   };
 
-  const handleRerun = async (s) => {
-    setLoading(true);
-    setScrapingLabel(`Re-running "${s.name}"`);
-    setScraping(true);
+  /**
+   * Run a saved search with streaming progress. Switches the UI to the
+   * results view immediately, populates listings incrementally as each
+   * source completes, and updates the telemetry ribbon with status events.
+   * Returns when the stream closes (server emitted `done`).
+   */
+  const streamScrape = async (search, label) => {
+    setActiveSearch(search);
+    setListings([]);
+    setFocusedListingId(null);
+    setFeatureFilters({});
+    setScrapeStatus({ message: 'Starting search…', label, isRunning: true });
+
+    const seenIds = new Set();
+    let finalListings = null;
+
     try {
-      await rerunSearch(s.id);
-      const data = await getSearchListings(s.id);
-      setListings(data.listings || []);
-      refreshSearches();
-    } finally {
-      setLoading(false);
-      setScraping(false);
+      await runSearchStream(search.id, (event, data) => {
+        if (event === 'start') {
+          setScrapeStatus({ message: 'Connected — finding cities…', label, isRunning: true });
+        } else if (event === 'status') {
+          setScrapeStatus({ message: data.message, label, isRunning: true });
+        } else if (event === 'source-start') {
+          setScrapeStatus({ message: data.message || `Querying ${data.source}…`, label, isRunning: true });
+        } else if (event === 'source-done') {
+          // Append incremental listings as each source finishes
+          const fresh = (data.items || []).filter(l => !seenIds.has(l.id));
+          fresh.forEach(l => seenIds.add(l.id));
+          if (fresh.length > 0) {
+            setListings(prev => [...prev, ...fresh]);
+          }
+          setScrapeStatus({
+            message: `${data.source}: ${data.count} listings · still working…`,
+            label,
+            isRunning: true,
+          });
+        } else if (event === 'source-error') {
+          setScrapeStatus({
+            message: `${data.source} failed (${data.error}) — continuing with other sources`,
+            label,
+            isRunning: true,
+          });
+        } else if (event === 'final') {
+          // Server emits the canonical deduped list at the end; replace our
+          // provisional union with that to drop any cross-source duplicates.
+          finalListings = data.listings || [];
+        } else if (event === 'done') {
+          setScrapeStatus({
+            message: `Done — ${data.total_found ?? 0} unique listings, ${data.new_listings ?? 0} new`,
+            label,
+            isRunning: false,
+          });
+        } else if (event === 'error') {
+          setScrapeStatus({ message: `Error: ${data.message}`, label, isRunning: false });
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      setScrapeStatus({ message: `Stream error: ${err.message}`, label, isRunning: false });
     }
+
+    // Replace provisional listings with the final deduped set
+    if (finalListings) setListings(finalListings);
+    await refreshSearches();
+    // Hide the ribbon after a brief moment so the user sees the "done" line
+    setTimeout(() => setScrapeStatus(null), 4000);
+  };
+
+  const handleRerun = async (s) => {
+    await streamScrape(s, `Re-running "${s.name}"`);
   };
 
   const handleSaveDrawing = async () => {
@@ -188,23 +243,15 @@ export default function ExploreView() {
       setDrawing({ phase: 'idle', vertices: [] });
       return;
     }
-    setLoading(true);
-    setScrapingLabel(`Collecting ${mode} listings for "${name}"`);
-    setScraping(true);
     try {
-      const data = await createSearch({
-        name,
-        mode,
-        polygon: drawing.vertices,
-      });
+      // Create the search row first (this is fast — no scrape yet).
+      const created = await createSearch({ name, mode, polygon: drawing.vertices });
       setDrawing({ phase: 'idle', vertices: [] });
       await refreshSearches();
-      await handleSelect(data.search);
+      // Stream the scrape — listings will populate as each source completes.
+      await streamScrape(created.search, `Collecting ${mode} listings for "${name}"`);
     } catch (err) {
       alert(`Failed: ${err.message}`);
-    } finally {
-      setLoading(false);
-      setScraping(false);
     }
   };
 
@@ -268,12 +315,13 @@ export default function ExploreView() {
     <div className={`explore-layout ${sidebarOpen ? 'sidebar-open' : ''}`}>
       {sidebarOpen && <div className="sidebar-scrim" onClick={closeDrawer} />}
 
-      {scraping && (
-        <div className="scrape-overlay" role="status" aria-live="polite">
-          <div className="scrape-overlay-card">
-            <div className="spinner" />
-            <div className="scrape-overlay-title">Please wait — collecting results</div>
-            <div className="scrape-overlay-sub">{scrapingLabel}. Querying listings across every city inside your area.</div>
+      {scrapeStatus && (
+        <div className={`scrape-ribbon ${scrapeStatus.isRunning ? 'running' : 'done'}`} role="status" aria-live="polite">
+          {scrapeStatus.isRunning && <div className="spinner-sm" />}
+          {!scrapeStatus.isRunning && <span className="ribbon-check">✓</span>}
+          <div className="ribbon-text">
+            <span className="ribbon-label">{scrapeStatus.label}</span>
+            <span className="ribbon-message">{scrapeStatus.message}</span>
           </div>
         </div>
       )}

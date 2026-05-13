@@ -183,7 +183,10 @@ router.get('/api/searches', (req, res) => {
   res.json({ searches: rows.map(expandSearch) });
 });
 
-// POST /api/searches — create a new search (polygon) and immediately run it
+// POST /api/searches — create a new search (polygon).
+// Does NOT run the scrape — the client is expected to follow up with
+// POST /api/searches/:id/run/stream to actually populate listings while
+// streaming progress. (Sync run is still supported via POST /api/searches/:id/run.)
 router.post('/api/searches', async (req, res) => {
   const { name, mode, polygon } = req.body || {};
   if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
@@ -193,13 +196,76 @@ router.post('/api/searches', async (req, res) => {
     return res.status(400).json({ error: 'mode must be farmland or cabin' });
   }
 
-  // Compute centroid (kept in legacy center_lat/center_lng for map fitting) and
-  // a notional "radius_mi" from the bounding box (useful for sidebar display).
   const centroid = polygonCentroid(polygon);
   const bbox = polygonBbox(polygon);
   const halfLat = (bbox.maxLat - bbox.minLat) / 2;
   const halfLng = (bbox.maxLng - bbox.minLng) / 2;
-  // Approximate "radius" as half the larger bbox dimension in miles.
+  const radiusMi = Math.max(halfLat * 69, halfLng * 54.6);
+
+  const now = new Date().toISOString();
+  const info = db.prepare(`
+    INSERT INTO searches (name, mode, center_lat, center_lng, radius_mi, polygon, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(name, mode, centroid.lat, centroid.lng, radiusMi, JSON.stringify(polygon), now);
+
+  const row = db.prepare('SELECT * FROM searches WHERE id = ?').get(info.lastInsertRowid);
+  res.json({ search: expandSearch(row) });
+});
+
+// Helper: write a server-sent-event frame to the response.
+function sse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+// POST /api/searches/:id/run/stream — run the scrape for a saved search and
+// stream progress + partial listings to the client via Server-Sent Events.
+router.post('/api/searches/:id/run/stream', async (req, res) => {
+  const row = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Search not found' });
+  if (!row.polygon) return res.status(400).json({ error: 'Search has no polygon' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if reverse-proxied
+  res.flushHeaders?.();
+
+  try {
+    const polygon = JSON.parse(row.polygon);
+    const onProgress = (evt) => sse(res, evt.type, evt);
+    sse(res, 'start', { search: expandSearch(row) });
+
+    const result = await runScrapeForArea({ mode: row.mode, polygon, onProgress });
+
+    db.prepare('UPDATE searches SET last_run_at = ?, result_count = ? WHERE id = ?')
+      .run(new Date().toISOString(), result.total_found || 0, row.id);
+
+    sse(res, 'done', result);
+    res.end();
+  } catch (err) {
+    console.error('Stream scrape error:', err);
+    sse(res, 'error', { message: err.message });
+    res.end();
+  }
+});
+
+// POST /api/searches/sync — legacy: create AND run in one synchronous call.
+// Kept so any external scripts that hit POST /api/searches and expect a synchronous
+// scrape still work. New UI uses create + run/stream.
+router.post('/api/searches/sync', async (req, res) => {
+  const { name, mode, polygon } = req.body || {};
+  if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
+    return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
+  }
+  if (mode !== 'farmland' && mode !== 'cabin') {
+    return res.status(400).json({ error: 'mode must be farmland or cabin' });
+  }
+
+  const centroid = polygonCentroid(polygon);
+  const bbox = polygonBbox(polygon);
+  const halfLat = (bbox.maxLat - bbox.minLat) / 2;
+  const halfLng = (bbox.maxLng - bbox.minLng) / 2;
   const radiusMi = Math.max(halfLat * 69, halfLng * 54.6);
 
   const now = new Date().toISOString();
