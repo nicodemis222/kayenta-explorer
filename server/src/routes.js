@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from './db.js';
-import { runScrape } from './scraper.js';
+import { runScrape, runScrapeForArea } from './scraper.js';
+import { pointInPolygon, polygonCentroid, polygonBbox } from './cities.js';
 
 const router = Router();
 
@@ -165,6 +166,113 @@ router.get('/api/stats', (req, res) => {
 router.get('/api/scrape-log', (req, res) => {
   const logs = db.prepare('SELECT * FROM scrape_log ORDER BY started_at DESC LIMIT 50').all();
   res.json({ logs });
+});
+
+// ── Saved searches ──
+
+function expandSearch(row) {
+  // Parse polygon JSON for clients.
+  let polygon = null;
+  try { polygon = row.polygon ? JSON.parse(row.polygon) : null; } catch {}
+  return { ...row, polygon };
+}
+
+// GET /api/searches — list saved searches
+router.get('/api/searches', (req, res) => {
+  const rows = db.prepare('SELECT * FROM searches ORDER BY last_run_at DESC, created_at DESC').all();
+  res.json({ searches: rows.map(expandSearch) });
+});
+
+// POST /api/searches — create a new search (polygon) and immediately run it
+router.post('/api/searches', async (req, res) => {
+  const { name, mode, polygon } = req.body || {};
+  if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
+    return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
+  }
+  if (mode !== 'farmland' && mode !== 'cabin') {
+    return res.status(400).json({ error: 'mode must be farmland or cabin' });
+  }
+
+  // Compute centroid (kept in legacy center_lat/center_lng for map fitting) and
+  // a notional "radius_mi" from the bounding box (useful for sidebar display).
+  const centroid = polygonCentroid(polygon);
+  const bbox = polygonBbox(polygon);
+  const halfLat = (bbox.maxLat - bbox.minLat) / 2;
+  const halfLng = (bbox.maxLng - bbox.minLng) / 2;
+  // Approximate "radius" as half the larger bbox dimension in miles.
+  const radiusMi = Math.max(halfLat * 69, halfLng * 54.6);
+
+  const now = new Date().toISOString();
+  const info = db.prepare(`
+    INSERT INTO searches (name, mode, center_lat, center_lng, radius_mi, polygon, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(name, mode, centroid.lat, centroid.lng, radiusMi, JSON.stringify(polygon), now);
+
+  const searchId = info.lastInsertRowid;
+
+  try {
+    const result = await runScrapeForArea({ mode, polygon });
+    db.prepare('UPDATE searches SET last_run_at = ?, result_count = ? WHERE id = ?')
+      .run(new Date().toISOString(), result.total_found || 0, searchId);
+
+    const row = db.prepare('SELECT * FROM searches WHERE id = ?').get(searchId);
+    res.json({ search: expandSearch(row), run: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/searches/:id/run — re-run an existing search
+router.post('/api/searches/:id/run', async (req, res) => {
+  const row = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Search not found' });
+  if (!row.polygon) return res.status(400).json({ error: 'Search has no polygon; recreate it' });
+
+  try {
+    const polygon = JSON.parse(row.polygon);
+    const result = await runScrapeForArea({ mode: row.mode, polygon });
+    db.prepare('UPDATE searches SET last_run_at = ?, result_count = ? WHERE id = ?')
+      .run(new Date().toISOString(), result.total_found || 0, row.id);
+    res.json({ run: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/searches/:id — rename a saved search
+router.patch('/api/searches/:id', (req, res) => {
+  const { name } = req.body || {};
+  if (!name || typeof name !== 'string') {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  const row = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Search not found' });
+
+  db.prepare('UPDATE searches SET name = ? WHERE id = ?').run(name.trim(), req.params.id);
+  res.json({ search: db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id) });
+});
+
+// DELETE /api/searches/:id
+router.delete('/api/searches/:id', (req, res) => {
+  db.prepare('DELETE FROM searches WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// GET /api/searches/:id/listings — listings within this search's polygon
+router.get('/api/searches/:id/listings', (req, res) => {
+  const search = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
+  if (!search) return res.status(404).json({ error: 'Search not found' });
+
+  const rows = db.prepare('SELECT * FROM listings WHERE type = ? AND latitude IS NOT NULL AND longitude IS NOT NULL').all(search.mode);
+
+  let polygon = null;
+  try { polygon = search.polygon ? JSON.parse(search.polygon) : null; } catch {}
+
+  const inside = rows
+    .filter(l => polygon ? pointInPolygon(l.latitude, l.longitude, polygon) : false)
+    .map(l => ({ ...l, amenities: tryParseJson(l.amenities) }));
+
+  res.json({ search: expandSearch(search), listings: inside, count: inside.length });
 });
 
 // POST /api/scrape — trigger a manual scrape

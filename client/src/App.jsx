@@ -1,18 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getStats, triggerScrape } from './api.js';
-import ListingsTab from './tabs/ListingsTab.jsx';
-import LandTab from './tabs/LandTab.jsx';
-import RentalsTab from './tabs/RentalsTab.jsx';
-import PriceChangesTab from './tabs/PriceChangesTab.jsx';
-import FarmlandTab from './tabs/FarmlandTab.jsx';
-import CabinTab from './tabs/CabinTab.jsx';
-
-const TABS = [
-  { id: 'price-changes', label: 'Price Changes' },
-  { id: 'homes', label: 'Ivins Homes' },
-  { id: 'land', label: 'Ivins Land' },
-  { id: 'rentals', label: 'Ivins Rentals' },
-];
+import ExploreView from './tabs/ExploreView.jsx';
 
 function formatCountdown(ms) {
   if (ms <= 0) return 'refreshing...';
@@ -26,8 +14,6 @@ function formatCountdown(ms) {
 }
 
 export default function App() {
-  const [mode, setMode] = useState('farmland'); // 'farmland' | 'cabin' | 'ivins'
-  const [activeTab, setActiveTab] = useState('price-changes');
   const [stats, setStats] = useState(null);
   const [scraping, setScraping] = useState(false);
   const [countdown, setCountdown] = useState(null);
@@ -44,7 +30,7 @@ export default function App() {
   useEffect(() => {
     getStats().then(setStats).catch(console.error);
     fetchTimer();
-  }, [activeTab, refreshKey, fetchTimer]);
+  }, [refreshKey, fetchTimer]);
 
   // Tick down every second
   useEffect(() => {
@@ -92,28 +78,7 @@ export default function App() {
       <header className="header">
         <div className="header-brand">
           <h1>Kayenta Explorer</h1>
-          <span>Ivins, UT · 3hr region</span>
-        </div>
-
-        <div className="mode-toggle">
-          <button
-            className={`mode-btn ${mode === 'farmland' ? 'active' : ''}`}
-            onClick={() => setMode('farmland')}
-          >
-            Farmland
-          </button>
-          <button
-            className={`mode-btn ${mode === 'cabin' ? 'active' : ''}`}
-            onClick={() => setMode('cabin')}
-          >
-            Cabin
-          </button>
-          <button
-            className={`mode-btn ${mode === 'ivins' ? 'active' : ''}`}
-            onClick={() => setMode('ivins')}
-          >
-            Ivins
-          </button>
+          <span>Farmland & Cabins</span>
         </div>
 
         <div className="header-actions">
@@ -137,27 +102,8 @@ export default function App() {
         </div>
       </header>
 
-      {mode === 'ivins' && (
-        <nav className="tabs subtabs">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              className={`tab ${activeTab === t.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-      )}
-
-      <main className="main">
-        {mode === 'farmland' && <FarmlandTab key={refreshKey} stats={stats} />}
-        {mode === 'cabin' && <CabinTab key={refreshKey} stats={stats} />}
-        {mode === 'ivins' && activeTab === 'homes' && <ListingsTab key={refreshKey} stats={stats} />}
-        {mode === 'ivins' && activeTab === 'price-changes' && <PriceChangesTab key={refreshKey} />}
-        {mode === 'ivins' && activeTab === 'land' && <LandTab key={refreshKey} stats={stats} />}
-        {mode === 'ivins' && activeTab === 'rentals' && <RentalsTab key={refreshKey} stats={stats} />}
+      <main className="main main-explore">
+        <ExploreView key={refreshKey} />
       </main>
     </div>
   );

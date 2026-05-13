@@ -9,6 +9,9 @@ server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
 
+# Runtime port file (written by server at startup)
+server/.port
+
 # Editor
 .vscode/
 .idea/

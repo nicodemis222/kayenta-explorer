@@ -1,5 +1,6 @@
 import { searchRealtorHomes, searchRealtorLand, searchRealtorRentals, searchRealtorFarmland, searchRealtorCabins } from './realtor.js';
 import { searchRedfinHomes, searchRedfinLand, searchRedfinRentals } from './redfin.js';
+import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
 /**
@@ -222,4 +223,56 @@ export async function runScrape() {
   }
 
   return results;
+}
+
+/**
+ * Run a scrape for a user-drawn area (mode = 'farmland' | 'cabin').
+ * Polygon is an array of [lat, lng] vertices. Finds cities inside the polygon
+ * and queries Realtor for each. Caller filters listings geographically when displaying.
+ */
+export async function runScrapeForArea({ mode, polygon }) {
+  const cities = citiesWithinPolygon(polygon);
+  const centroid = polygonCentroid(polygon);
+  console.log(`\n── Area scrape (${mode}) — ${cities.length} cities inside polygon (~centroid ${centroid?.lat.toFixed(3)}, ${centroid?.lng.toFixed(3)}, ${polygon.length} vertices) ──`);
+
+  if (cities.length === 0) {
+    return { total_found: 0, new_listings: 0, cities: 0, message: 'No cities inside polygon' };
+  }
+
+  const cityNames = cities.map(c => c.name);
+  const startedAt = new Date().toISOString();
+  let listings = [];
+
+  try {
+    if (mode === 'farmland') {
+      listings = await searchRealtorFarmland(cityNames);
+    } else if (mode === 'cabin') {
+      listings = await searchRealtorCabins(cityNames);
+    } else {
+      throw new Error(`Unknown mode: ${mode}`);
+    }
+  } catch (err) {
+    console.error(`  Area scrape error: ${err.message}`);
+    db.prepare(`
+      INSERT INTO scrape_log (source, type, status, error, started_at, completed_at)
+      VALUES ('realtor-area', ?, 'error', ?, ?, ?)
+    `).run(mode, err.message, startedAt, new Date().toISOString());
+    return { total_found: 0, new_listings: 0, cities: cities.length, error: err.message };
+  }
+
+  // Deduplicate and upsert
+  const unique = deduplicateListings(listings);
+  let groupNew = 0;
+  for (const listing of unique) {
+    const result = upsertListing(listing);
+    if (result.isNew) groupNew++;
+  }
+
+  db.prepare(`
+    INSERT INTO scrape_log (source, type, status, listings_found, listings_new, started_at, completed_at)
+    VALUES ('realtor-area', ?, 'success', ?, ?, ?, ?)
+  `).run(mode, unique.length, groupNew, startedAt, new Date().toISOString());
+
+  console.log(`  ✓ ${unique.length} ${mode} listings saved (${groupNew} new)`);
+  return { total_found: unique.length, new_listings: groupNew, cities: cities.length };
 }

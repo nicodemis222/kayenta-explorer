@@ -40,6 +40,7 @@ const LISTING_FIELDS = `
       city
       state_code
       postal_code
+      coordinate { lat lon }
     }
     neighborhoods { name }
   }
@@ -211,9 +212,9 @@ async function searchCityFarmsAndRanches(location) {
   }
 }
 
-async function fetchAllRegionalListings() {
+async function fetchListingsForCities(cityList) {
   const all = [];
-  for (const city of REGIONAL_CITIES) {
+  for (const city of cityList) {
     const results = await searchCityFarmsAndRanches(city);
     all.push(...results);
     await sleep(250); // gentle throttle
@@ -221,10 +222,10 @@ async function fetchAllRegionalListings() {
   return all;
 }
 
-export async function searchRealtorFarmland() {
-  console.log('    [realtor] Querying farmland across region (3hr of Ivins, UT)...');
+export async function searchRealtorFarmland(cityList = REGIONAL_CITIES) {
+  console.log(`    [realtor] Querying farmland across ${cityList.length} cities...`);
 
-  const all = await fetchAllRegionalListings();
+  const all = await fetchListingsForCities(cityList);
 
   const minLotSqft = 5 * SQFT_PER_ACRE;
   const filtered = all.filter(item => {
@@ -238,10 +239,10 @@ export async function searchRealtorFarmland() {
   return parseResults(filtered, 'farmland');
 }
 
-export async function searchRealtorCabins() {
-  console.log('    [realtor] Querying cabins across region (3hr of Ivins, UT)...');
+export async function searchRealtorCabins(cityList = REGIONAL_CITIES) {
+  console.log(`    [realtor] Querying cabins across ${cityList.length} cities...`);
 
-  const all = await fetchAllRegionalListings();
+  const all = await fetchListingsForCities(cityList);
 
   const minLotSqft = 20 * SQFT_PER_ACRE;
   const filtered = all.filter(item => {
@@ -337,6 +338,8 @@ function parseResults(results, listingType) {
       amenities: JSON.stringify([...(item.tags || []), ...detectFeatures(item)]),
       description: desc.text || '',
       image_url: imageUrl,
+      latitude: addr.coordinate?.lat ?? null,
+      longitude: addr.coordinate?.lon ?? null,
       date_posted: item.list_date || '',
       date_first_seen: now,
       date_last_seen: now,
