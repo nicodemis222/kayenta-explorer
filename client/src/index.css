@@ -827,6 +827,45 @@ button {
   background: var(--bg);
 }
 
+/* Center-screen overlay shown while a new search is being scraped */
+.scrape-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.scrape-overlay-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 36px;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.scrape-overlay-card .spinner {
+  margin: 0 auto 16px;
+}
+
+.scrape-overlay-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.scrape-overlay-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 /* Draggable handle at the center of a saved-search circle */
 .circle-move-handle {
   background: transparent;

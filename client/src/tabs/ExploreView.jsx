@@ -34,6 +34,10 @@ export default function ExploreView() {
   const [activeSearch, setActiveSearch] = useState(null);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Distinct from `loading` (fast fetch): this flag is true only when a
+  // scrape is running so we can show a center-screen overlay.
+  const [scraping, setScraping] = useState(false);
+  const [scrapingLabel, setScrapingLabel] = useState('');
   // drawing state: { phase: 'idle'|'idle-ready'|'drawing'|'done', vertices: [[lat,lng], ...] }
   const [drawing, setDrawing] = useState({ phase: 'idle', vertices: [] });
   const [featureFilters, setFeatureFilters] = useState({});
@@ -159,6 +163,8 @@ export default function ExploreView() {
 
   const handleRerun = async (s) => {
     setLoading(true);
+    setScrapingLabel(`Re-running "${s.name}"`);
+    setScraping(true);
     try {
       await rerunSearch(s.id);
       const data = await getSearchListings(s.id);
@@ -166,6 +172,7 @@ export default function ExploreView() {
       refreshSearches();
     } finally {
       setLoading(false);
+      setScraping(false);
     }
   };
 
@@ -182,6 +189,8 @@ export default function ExploreView() {
       return;
     }
     setLoading(true);
+    setScrapingLabel(`Collecting ${mode} listings for "${name}"`);
+    setScraping(true);
     try {
       const data = await createSearch({
         name,
@@ -195,6 +204,7 @@ export default function ExploreView() {
       alert(`Failed: ${err.message}`);
     } finally {
       setLoading(false);
+      setScraping(false);
     }
   };
 
@@ -257,6 +267,16 @@ export default function ExploreView() {
   return (
     <div className={`explore-layout ${sidebarOpen ? 'sidebar-open' : ''}`}>
       {sidebarOpen && <div className="sidebar-scrim" onClick={closeDrawer} />}
+
+      {scraping && (
+        <div className="scrape-overlay" role="status" aria-live="polite">
+          <div className="scrape-overlay-card">
+            <div className="spinner" />
+            <div className="scrape-overlay-title">Please wait — collecting results</div>
+            <div className="scrape-overlay-sub">{scrapingLabel}. Querying listings across every city inside your area.</div>
+          </div>
+        </div>
+      )}
 
       <SearchSidebar
         searches={searches}
