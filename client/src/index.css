@@ -806,11 +806,11 @@ button {
 
 /* While the user is creating a new search, hide the results column and let
    the map take the entire main area so they can see and target precisely. */
-.explore-main.drawing-mode {
+.explore-main.map-fullwidth {
   grid-template-areas: "map";
   grid-template-columns: 1fr;
 }
-.explore-main.drawing-mode .explore-results { display: none; }
+.explore-main.map-fullwidth .explore-results { display: none; }
 
 .map-wrapper {
   position: relative;
