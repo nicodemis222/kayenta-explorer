@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+
+# Local SQLite database (regenerated on first scrape)
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+
+# Editor
+.vscode/
+.idea/
