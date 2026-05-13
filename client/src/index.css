@@ -790,12 +790,18 @@ button {
   border-color: var(--red);
 }
 
-/* Explore main area */
+/* Explore main area — desktop: results on left, map on right
+   Uses grid-template-areas so source order can stay map-first (better for mobile) */
 .explore-main {
   display: grid;
-  grid-template-rows: minmax(320px, 50vh) 1fr;
+  grid-template-areas: "results map";
+  grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.2fr);
   overflow: hidden;
+  height: 100%;
 }
+
+.map-wrapper { grid-area: map; }
+.explore-results { grid-area: results; }
 
 .map-wrapper {
   position: relative;
@@ -869,7 +875,7 @@ button {
 .explore-results {
   overflow-y: auto;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   background: var(--bg);
 }
 
@@ -972,6 +978,14 @@ button {
 
 @media (max-width: 900px) {
   .explore-layout { grid-template-columns: 1fr; }
+
+  /* On mobile, stack map then results (single column) */
+  .explore-main {
+    grid-template-areas: "map" "results";
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(320px, 50vh) 1fr;
+  }
+  .explore-results { border-right: none; border-top: 1px solid var(--border); }
 
   .sidebar {
     position: fixed;
