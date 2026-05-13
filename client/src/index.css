@@ -654,7 +654,7 @@ button {
 .explore-layout {
   display: grid;
   grid-template-columns: 280px 1fr;
-  height: 100%;
+  height: calc(100vh - 64px);
 }
 
 .sidebar {
@@ -796,12 +796,21 @@ button {
   display: grid;
   grid-template-areas: "results map";
   grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.2fr);
+  grid-template-rows: 1fr;
   overflow: hidden;
   height: 100%;
 }
 
 .map-wrapper { grid-area: map; }
 .explore-results { grid-area: results; }
+
+/* While the user is creating a new search, hide the results column and let
+   the map take the entire main area so they can see and target precisely. */
+.explore-main.drawing-mode {
+  grid-template-areas: "map";
+  grid-template-columns: 1fr;
+}
+.explore-main.drawing-mode .explore-results { display: none; }
 
 .map-wrapper {
   position: relative;

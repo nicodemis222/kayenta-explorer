@@ -270,7 +270,7 @@ export default function ExploreView() {
         onRename={handleRename}
       />
 
-      <div className="explore-main">
+      <div className={`explore-main ${drawing.phase !== 'idle' ? 'drawing-mode' : ''}`}>
         <div className="map-wrapper">
           <button
             className="sidebar-toggle"

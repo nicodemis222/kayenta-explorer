@@ -35,6 +35,20 @@ function ClickCapture({ phase, onClick, onMove, onDblClick }) {
   return null;
 }
 
+// Tell Leaflet to recompute its size when its container element resizes
+// (e.g. when entering/leaving the full-width "drawing mode" layout).
+function InvalidateOnResize() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    if (!container || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [map]);
+  return null;
+}
+
 // Pans/zooms the map to fit a displayed polygon when it changes.
 function FitToPolygon({ polygon }) {
   const map = useMap();
@@ -160,6 +174,7 @@ export default function MapView({
           onDblClick={handleDblClick}
         />
 
+        <InvalidateOnResize />
         <FitToPolygon polygon={displayPolygon} />
         <PanToFocused focusedListingId={focusedListingId} listings={listings} />
 
