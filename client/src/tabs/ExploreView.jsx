@@ -36,6 +36,11 @@ export default function ExploreView() {
   const [loading, setLoading] = useState(false);
   // Streaming-scrape state: live telemetry shown in a bottom ribbon while a search runs.
   const [scrapeStatus, setScrapeStatus] = useState(null); // null | { message, label, isRunning }
+
+  // Save-prompt modal: shown after Finish on a drawing. Lets the user set a name
+  // plus the sqft / acreage thresholds before kicking off the scrape.
+  const [savePrompt, setSavePrompt] = useState(null);
+  // null | { name, minSqft, minAcres, mode }
   // drawing state: { phase: 'idle'|'idle-ready'|'drawing'|'done', vertices: [[lat,lng], ...] }
   const [drawing, setDrawing] = useState({ phase: 'idle', vertices: [] });
   const [featureFilters, setFeatureFilters] = useState({});
@@ -231,28 +236,46 @@ export default function ExploreView() {
     await streamScrape(s, `Re-running "${s.name}"`);
   };
 
-  const handleSaveDrawing = async () => {
+  // Step 1 of save-flow: open the modal with default thresholds for the active mode.
+  const handleSaveDrawing = () => {
     if (drawing.phase !== 'done' || !drawing.vertices || drawing.vertices.length < 3) return;
     const centroidLat = drawing.vertices.reduce((s, v) => s + v[0], 0) / drawing.vertices.length;
     const centroidLng = drawing.vertices.reduce((s, v) => s + v[1], 0) / drawing.vertices.length;
-    const name = prompt(
-      'Name this search:',
-      `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`
-    );
-    if (!name) {
-      setDrawing({ phase: 'idle', vertices: [] });
-      return;
-    }
+    const defaults = mode === 'cabin' ? { minSqft: 2000, minAcres: 20 } : { minSqft: 2500, minAcres: 5 };
+    setSavePrompt({
+      name: `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`,
+      minSqft: defaults.minSqft,
+      minAcres: defaults.minAcres,
+      mode,
+    });
+  };
+
+  // Step 2: user confirmed the modal — create + stream the scrape.
+  const handleConfirmSave = async () => {
+    if (!savePrompt) return;
+    const { name, minSqft, minAcres } = savePrompt;
+    if (!name || !name.trim()) return;
+    const vertices = drawing.vertices;
     try {
-      // Create the search row first (this is fast — no scrape yet).
-      const created = await createSearch({ name, mode, polygon: drawing.vertices });
+      const created = await createSearch({
+        name: name.trim(),
+        mode,
+        polygon: vertices,
+        min_house_sqft: minSqft,
+        min_lot_acres: minAcres,
+      });
+      setSavePrompt(null);
       setDrawing({ phase: 'idle', vertices: [] });
       await refreshSearches();
-      // Stream the scrape — listings will populate as each source completes.
-      await streamScrape(created.search, `Collecting ${mode} listings for "${name}"`);
+      await streamScrape(created.search, `Collecting ${mode} listings for "${name.trim()}"`);
     } catch (err) {
       alert(`Failed: ${err.message}`);
     }
+  };
+
+  const handleCancelSavePrompt = () => {
+    setSavePrompt(null);
+    setDrawing({ phase: 'idle', vertices: [] });
   };
 
   const handleCancelDrawing = () => setDrawing({ phase: 'idle', vertices: [] });
@@ -322,6 +345,51 @@ export default function ExploreView() {
           <div className="ribbon-text">
             <span className="ribbon-label">{scrapeStatus.label}</span>
             <span className="ribbon-message">{scrapeStatus.message}</span>
+          </div>
+        </div>
+      )}
+
+      {savePrompt && (
+        <div className="save-modal-backdrop" onClick={handleCancelSavePrompt}>
+          <div className="save-modal" onClick={e => e.stopPropagation()}>
+            <h3>Save and search</h3>
+            <label className="save-field">
+              <span>Name</span>
+              <input
+                type="text"
+                value={savePrompt.name}
+                onChange={e => setSavePrompt(p => ({ ...p, name: e.target.value }))}
+                autoFocus
+              />
+            </label>
+            <label className="save-field">
+              <span>Minimum house sqft</span>
+              <select
+                value={savePrompt.minSqft}
+                onChange={e => setSavePrompt(p => ({ ...p, minSqft: Number(e.target.value) }))}
+              >
+                {[1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000].map(v =>
+                  <option key={v} value={v}>{v.toLocaleString()}+ sqft</option>
+                )}
+              </select>
+            </label>
+            <label className="save-field">
+              <span>Minimum lot size</span>
+              <select
+                value={savePrompt.minAcres}
+                onChange={e => setSavePrompt(p => ({ ...p, minAcres: Number(e.target.value) }))}
+              >
+                {[1, 2, 5, 10, 20, 40, 80, 160].map(v =>
+                  <option key={v} value={v}>{v}+ acres</option>
+                )}
+              </select>
+            </label>
+            <div className="save-modal-actions">
+              <button className="btn" onClick={handleCancelSavePrompt}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleConfirmSave} disabled={!savePrompt.name.trim()}>
+                Save and search
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -222,41 +222,45 @@ async function fetchListingsForCities(cityList) {
   return all;
 }
 
-export async function searchRealtorFarmland(cityList = REGIONAL_CITIES) {
-  console.log(`    [realtor] Querying farmland across ${cityList.length} cities...`);
+export async function searchRealtorFarmland(cityList = REGIONAL_CITIES, opts = {}) {
+  const minSqft  = opts.minHouseSqft ?? 2500;
+  const minAcres = opts.minLotAcres  ?? 5;
+  console.log(`    [realtor] Querying farmland across ${cityList.length} cities (>=${minSqft} sqft, >=${minAcres} ac)...`);
 
   const all = await fetchListingsForCities(cityList);
-
-  const minLotSqft = 5 * SQFT_PER_ACRE;
+  const minLotSqft = minAcres * SQFT_PER_ACRE;
   const filtered = all.filter(item => {
     const d = item.description || {};
     const sqft = d.sqft || 0;
     const lot = d.lot_sqft || 0;
-    return sqft >= 2500 && lot >= minLotSqft;
+    return sqft >= minSqft && lot >= minLotSqft;
   });
 
-  console.log(`    [realtor] ${filtered.length} farmland candidates (2500+ sqft home, 5+ acres)`);
+  console.log(`    [realtor] ${filtered.length} farmland candidates`);
   return parseResults(filtered, 'farmland');
 }
 
-export async function searchRealtorCabins(cityList = REGIONAL_CITIES) {
-  console.log(`    [realtor] Querying cabins across ${cityList.length} cities...`);
+export async function searchRealtorCabins(cityList = REGIONAL_CITIES, opts = {}) {
+  const minSqft  = opts.minHouseSqft ?? 2000;
+  const minAcres = opts.minLotAcres  ?? 20;
+  console.log(`    [realtor] Querying cabins across ${cityList.length} cities (>=${minSqft} sqft, >=${minAcres} ac)...`);
 
   const all = await fetchListingsForCities(cityList);
-
-  const minLotSqft = 20 * SQFT_PER_ACRE;
+  const minLotSqft = minAcres * SQFT_PER_ACRE;
+  // Cabin = meets size OR cabin-described with >= 5 ac and meets sqft (the
+  // "cabin-described" branch lets log/A-frame homes on smaller parcels through).
+  const cabinFallbackAcres = Math.min(5, minAcres);
   const filtered = all.filter(item => {
     const d = item.description || {};
     const sqft = d.sqft || 0;
     const lot = d.lot_sqft || 0;
     const text = `${d.text || ''} ${(item.tags || []).join(' ')}`;
-    // Cabin = either 20+ acre property with 2000+ sqft house, OR property explicitly described as a cabin.
-    const meetsSize = sqft >= 2000 && lot >= minLotSqft;
+    const meetsSize = sqft >= minSqft && lot >= minLotSqft;
     const reads_as_cabin = CABIN_PATTERNS.test(text);
-    return meetsSize || (reads_as_cabin && sqft >= 2000 && lot >= 5 * SQFT_PER_ACRE);
+    return meetsSize || (reads_as_cabin && sqft >= minSqft && lot >= cabinFallbackAcres * SQFT_PER_ACRE);
   });
 
-  console.log(`    [realtor] ${filtered.length} cabin candidates (2000+ sqft, 20+ acres or cabin-described)`);
+  console.log(`    [realtor] ${filtered.length} cabin candidates`);
   return parseResults(filtered, 'cabin');
 }
 

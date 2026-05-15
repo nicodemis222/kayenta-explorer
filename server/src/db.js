@@ -61,7 +61,9 @@ db.exec(`
     radius_mi REAL NOT NULL,
     created_at TEXT NOT NULL,
     last_run_at TEXT,
-    result_count INTEGER DEFAULT 0
+    result_count INTEGER DEFAULT 0,
+    min_house_sqft INTEGER,
+    min_lot_acres REAL
   );
 
   CREATE TABLE IF NOT EXISTS price_history (
@@ -96,6 +98,8 @@ db.exec(`
 ensureColumn('listings', 'latitude', 'REAL');
 ensureColumn('listings', 'longitude', 'REAL');
 ensureColumn('searches', 'polygon', 'TEXT');
+ensureColumn('searches', 'min_house_sqft', 'INTEGER');
+ensureColumn('searches', 'min_lot_acres', 'REAL');
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_listings_lat ON listings(latitude);

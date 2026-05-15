@@ -69,6 +69,11 @@ export default function SearchSidebar({
               <div className="sidebar-item-sub">
                 {Array.isArray(s.polygon) ? `${s.polygon.length}-point area` : `${(+s.radius_mi).toFixed(0)}mi radius`} · {s.result_count || 0} results · {formatDate(s.last_run_at)}
               </div>
+              {(s.min_house_sqft || s.min_lot_acres) && (
+                <div className="sidebar-item-sub">
+                  ≥ {s.min_house_sqft ? `${s.min_house_sqft.toLocaleString()} sqft` : '—'} · ≥ {s.min_lot_acres ? `${s.min_lot_acres} ac` : '—'}
+                </div>
+              )}
               <div className="sidebar-item-actions">
                 <button title="Re-run search" onClick={(e) => { e.stopPropagation(); onRerun(s); }}>Re-run</button>
                 <button title="Rename"        onClick={(e) => { e.stopPropagation(); onRename(s); }}>Rename</button>

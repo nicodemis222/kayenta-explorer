@@ -243,7 +243,16 @@ export async function runScrape() {
  *   { type: 'source-error',  source: 'Realtor.com', error }
  *   { type: 'final',         listings: [...deduped...] }
  */
-export async function runScrapeForArea({ mode, polygon, onProgress = () => {} }) {
+export async function runScrapeForArea({ mode, polygon, minHouseSqft, minLotAcres, onProgress = () => {} }) {
+  // Resolve filter thresholds with sensible defaults per mode
+  const defaults = mode === 'cabin'
+    ? { minHouseSqft: 2000, minLotAcres: 20 }
+    : { minHouseSqft: 2500, minLotAcres: 5 };
+  const filters = {
+    minHouseSqft: minHouseSqft ?? defaults.minHouseSqft,
+    minLotAcres: minLotAcres ?? defaults.minLotAcres,
+  };
+  onProgress({ type: 'status', message: `Filters: ≥${filters.minHouseSqft} sqft house, ≥${filters.minLotAcres} acres` });
   const cities = citiesWithinPolygon(polygon);
   const centroid = polygonCentroid(polygon);
   console.log(`\n── Area scrape (${mode}) — ${cities.length} cities inside polygon (~centroid ${centroid?.lat.toFixed(3)}, ${centroid?.lng.toFixed(3)}, ${polygon.length} vertices) ──`);
@@ -283,14 +292,14 @@ export async function runScrapeForArea({ mode, polygon, onProgress = () => {} })
   let sourceResults;
   if (mode === 'farmland') {
     sourceResults = await Promise.all([
-      runSource('Realtor.com',    () => searchRealtorFarmland(cityNames)),
+      runSource('Realtor.com',    () => searchRealtorFarmland(cityNames, filters)),
       runSource('Hayden Outdoors', () => searchHaydenFarmland(polygon)),
       runSource('United Country',  () => searchUnitedCountryFarmland(polygon)),
       runSource('LandWatch',       () => searchLandwatchFarmland(polygon)),
     ]);
   } else if (mode === 'cabin') {
     sourceResults = await Promise.all([
-      runSource('Realtor.com',    () => searchRealtorCabins(cityNames)),
+      runSource('Realtor.com',    () => searchRealtorCabins(cityNames, filters)),
       runSource('Hayden Outdoors', () => searchHaydenCabins(polygon)),
       runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
       runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
