@@ -25,6 +25,11 @@ export const CITIES = [
   { name: 'Pine Valley, UT',     lat: 37.3858, lng: -113.5111 },
   { name: 'Leeds, UT',           lat: 37.2342, lng: -113.3614 },
   { name: 'New Harmony, UT',     lat: 37.4794, lng: -113.3094 },
+  { name: 'Newcastle, UT',       lat: 37.6586, lng: -113.5481 },
+  { name: 'Modena, UT',          lat: 37.7958, lng: -113.9197 },
+  { name: 'Cedar Highlands, UT', lat: 37.6444, lng: -112.8794 },
+  { name: 'Kanarraville, UT',    lat: 37.5331, lng: -113.1764 },
+  { name: 'Summit, UT',          lat: 37.7989, lng: -112.9417 },
 
   // South-central Utah
   { name: 'Cedar City, UT',      lat: 37.6775, lng: -113.0619 },

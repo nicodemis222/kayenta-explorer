@@ -2,6 +2,7 @@ import { searchRealtorHomes, searchRealtorLand, searchRealtorRentals, searchReal
 import { searchRedfinHomes, searchRedfinLand, searchRedfinRentals } from './redfin.js';
 import { searchHaydenFarmland, searchHaydenCabins } from './hayden.js';
 import { searchUnitedCountryFarmland, searchUnitedCountryCabins } from './unitedcountry.js';
+import { searchLandwatchFarmland, searchLandwatchCabins } from './landwatch.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -285,12 +286,14 @@ export async function runScrapeForArea({ mode, polygon, onProgress = () => {} })
       runSource('Realtor.com',    () => searchRealtorFarmland(cityNames)),
       runSource('Hayden Outdoors', () => searchHaydenFarmland(polygon)),
       runSource('United Country',  () => searchUnitedCountryFarmland(polygon)),
+      runSource('LandWatch',       () => searchLandwatchFarmland(polygon)),
     ]);
   } else if (mode === 'cabin') {
     sourceResults = await Promise.all([
       runSource('Realtor.com',    () => searchRealtorCabins(cityNames)),
       runSource('Hayden Outdoors', () => searchHaydenCabins(polygon)),
       runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
+      runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });
