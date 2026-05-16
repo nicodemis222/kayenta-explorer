@@ -193,7 +193,15 @@ async function searchByPolygon(polygon, listingType) {
   const states = statesIntersecting(polygon);
   console.log(`    [landwatch] States intersecting polygon: ${states.join(', ') || '(none)'}`);
 
-  const context = await newStealthContext();
+  let context;
+  try {
+    context = await newStealthContext();
+  } catch (err) {
+    // Browser unavailable (e.g. Chromium not installed). Surface a single
+    // clean line and let other sources continue.
+    console.warn(`    [landwatch] skipped — ${err.message}`);
+    return [];
+  }
   const page = await context.newPage();
   let listings = [];
 

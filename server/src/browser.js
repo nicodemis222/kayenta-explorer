@@ -16,6 +16,7 @@ const STEALTH_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 let browserPromise = null;
+let launchFailed = null; // cached Error from a prior failed launch — skips retries
 let warmedUp = false;
 
 async function launchBrowser() {
@@ -31,7 +32,23 @@ async function launchBrowser() {
 }
 
 export function getBrowser() {
-  if (!browserPromise) browserPromise = launchBrowser();
+  if (launchFailed) return Promise.reject(launchFailed);
+  if (!browserPromise) {
+    browserPromise = launchBrowser().catch((err) => {
+      // Cache the failure so callers within the same process don't relaunch
+      // (e.g. when Chromium isn't installed, each LandWatch state would
+      // otherwise re-attempt and re-print the install prompt).
+      if (/Executable doesn't exist/i.test(err.message)) {
+        launchFailed = new Error(
+          'Playwright Chromium not installed — run `npx playwright install chromium` in server/'
+        );
+      } else {
+        launchFailed = err;
+      }
+      browserPromise = null;
+      throw launchFailed;
+    });
+  }
   return browserPromise;
 }
 
