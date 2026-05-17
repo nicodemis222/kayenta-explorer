@@ -19,7 +19,8 @@ function isPortFree(port) {
 }
 
 // Try `preferred`; if taken, scan up to `preferred + tries - 1` for the first free port.
-async function findFreePort(preferred, tries = 20) {
+// `tries` is configurable via KAYENTA_PORT_SCAN env (default 50).
+async function findFreePort(preferred, tries = Number(process.env.KAYENTA_PORT_SCAN) || 50) {
   for (let i = 0; i < tries; i++) {
     const port = preferred + i;
     if (await isPortFree(port)) return port;
@@ -100,19 +101,45 @@ app.get('*', (req, res) => {
 
 const PREFERRED_PORT = Number(SERVER_PORT) || 3001;
 
-const port = await findFreePort(PREFERRED_PORT);
-if (port !== PREFERRED_PORT) {
-  console.log(`  Port ${PREFERRED_PORT} is in use — using ${port} instead`);
-}
-
-// Write the selected port for the client/Vite proxy to discover
 const portFile = path.join(__dirname, '..', '.port');
-fs.writeFileSync(portFile, String(port));
 process.on('exit', () => { try { fs.unlinkSync(portFile); } catch {} });
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
 
-app.listen(port, () => {
+// Try to bind, retrying on EADDRINUSE (in case a race between findFreePort
+// and listen() lets another process grab the port we picked).
+async function listenWithRetry(startPort, maxAttempts = 10) {
+  let candidate = startPort;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      candidate = await findFreePort(candidate);
+      await new Promise((resolve, reject) => {
+        const server = app.listen(candidate)
+          .once('listening', () => resolve(server))
+          .once('error', reject);
+      });
+      return candidate;
+    } catch (err) {
+      if (err.code === 'EADDRINUSE') {
+        candidate += 1;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(`Could not bind a port starting at ${startPort}`);
+}
+
+const port = await listenWithRetry(PREFERRED_PORT);
+if (port !== PREFERRED_PORT) {
+  console.log(`  Port ${PREFERRED_PORT} is in use — using ${port} instead`);
+}
+
+// Write the selected port AFTER bind succeeds so the client/Vite proxy
+// (which reads server/.port at startup) only ever sees a live port.
+fs.writeFileSync(portFile, String(port));
+
+{
   console.log(`\n  Kayenta Explorer API running on http://localhost:${port}`);
   console.log(`  Scrape: Realtor.com + Redfin — click Refresh Data or POST /api/scrape`);
   console.log(`  Endpoints:`);
@@ -123,4 +150,4 @@ app.listen(port, () => {
   console.log(`    GET  /api/scrape-log`);
   console.log(`    GET  /api/searches`);
   console.log(`    POST /api/scrape (trigger manual scrape)\n`);
-});
+}
