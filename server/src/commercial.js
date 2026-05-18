@@ -110,12 +110,19 @@ export function detectBunkerFeatures(rawText, propertyType = '', opts = {}) {
 
 /**
  * Coarse-tier bunker fitness pill — easier to filter on than the raw score.
+ *
+ * Thresholds are calibrated to the empirical Crexi card distribution: the
+ * card text is short (title + type + sqft + address), so realistic scores
+ * top out around 4 for Industrial/Warehouse listings unless the listing
+ * explicitly mentions multiple bunker-specific traits. We want strong
+ * commercial signals (industrial type alone scores 3) to read as "high"
+ * on the map, hence the lower-than-symmetric breakpoints.
  */
 export function bunkerTier(features) {
   const m = (Array.isArray(features) ? features : []).find(f => f.startsWith('feature:bunker-score:'));
   if (!m) return null;
   const n = Number(m.split(':').pop());
-  if (n >= 6) return 'high';
-  if (n >= 3) return 'medium';
+  if (n >= 3) return 'high';
+  if (n >= 1) return 'medium';
   return 'low';
 }

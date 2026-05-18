@@ -67,7 +67,7 @@ function lookupCoords(locality, region) {
 
 const MAX_PAGES_PER_STATE = 5; // 5 × 60 = up to 300 listings per state
 const PAGE_THROTTLE_MS = 2000;
-const PAGE_WAIT_MS = 5000;     // post-load wait for Angular hydration
+const HYDRATION_TIMEOUT_MS = 20000; // upper bound for Angular card hydration
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -93,7 +93,16 @@ async function fetchStateCards(page, stateCode) {
     try {
       const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       if (resp && resp.status() >= 400) break;
-      await page.waitForTimeout(PAGE_WAIT_MS);
+      // Wait until Angular cards actually hydrate. A fixed sleep was racy
+      // under varying network conditions and produced empty-result false
+      // negatives — Crexi's hydration ranges roughly 5-12s in practice.
+      try {
+        await page.waitForSelector('[data-cy="propertyTile"]', { timeout: HYDRATION_TIMEOUT_MS });
+      } catch {
+        // No cards within timeout — page is genuinely empty or
+        // rate-limited. Treat as the natural end of pagination.
+        break;
+      }
       cards = await page.$$eval('[data-cy="propertyTile"]', tiles => tiles.map(tile => {
         const link = tile.querySelector('a[href*="/properties/"]')?.getAttribute('href') || '';
         const text = (tile.innerText || '').replace(/ /g, ' ').trim();

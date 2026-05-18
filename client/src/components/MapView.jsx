@@ -224,8 +224,11 @@ export default function MapView({
           const score = tag ? Number(String(tag).split(':').pop()) : null;
           let baseColor = '#3b82f6', strokeColor = '#1e3a8a'; // default blue
           if (score != null) {
-            if (score >= 6)      { baseColor = '#dc2626'; strokeColor = '#7f1d1d'; } // red high
-            else if (score >= 3) { baseColor = '#f59e0b'; strokeColor = '#92400e'; } // amber medium
+            // Thresholds match server/src/commercial.js → bunkerTier().
+            // Crexi card text is short, so industrial-only listings score
+            // ~3 — we want those to read as "high" on the map.
+            if (score >= 3)      { baseColor = '#dc2626'; strokeColor = '#7f1d1d'; } // red high
+            else if (score >= 1) { baseColor = '#f59e0b'; strokeColor = '#92400e'; } // amber medium
             else                 { baseColor = '#94a3b8'; strokeColor = '#475569'; } // slate low
           }
 

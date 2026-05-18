@@ -60,10 +60,13 @@ export default function ListingCard({ listing }) {
   };
 
   // 0–10 → tier label for the badge.
+  // Thresholds match server/src/commercial.js → bunkerTier() and the map
+  // marker color logic: Crexi card text is sparse so industrial-only
+  // listings score ~3, and we want those to read as "high".
   const bunkerTier =
     bunkerScore == null ? null :
-    bunkerScore >= 6    ? 'high'  :
-    bunkerScore >= 3    ? 'medium': 'low';
+    bunkerScore >= 3    ? 'high'  :
+    bunkerScore >= 1    ? 'medium': 'low';
 
   // Build the "why this scored" tooltip from the bunker-relevant feature
   // pills present on this listing. Falls back to a generic explainer when

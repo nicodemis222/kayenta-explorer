@@ -134,7 +134,7 @@ export default function ExploreView() {
     if (mode === 'commercial') {
       setSortKey('bunker');
       setSortDir('desc');
-      setMinBunker(3); // hide pure-noise low-scoring commercial cards by default
+      setMinBunker(1); // hide pure-noise (score 0) commercial cards by default
     } else {
       setSortKey('price');
       setSortDir('asc');
