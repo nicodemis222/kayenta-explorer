@@ -7,6 +7,7 @@ import { searchCrexiCommercial } from './crexi.js';
 import { searchMinesCommercial } from './mines.js';
 import { searchSilosCommercial } from './silos.js';
 import { searchOsmFarmland, searchOsmCabins, searchOsmCommercial } from './overpass.js';
+import { searchMossyOakFarmland, searchMossyOakCabins } from './mossyoak.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -310,6 +311,7 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       runSource('United Country',  () => searchUnitedCountryFarmland(polygon)),
       runSource('LandWatch',       () => searchLandwatchFarmland(polygon)),
       runSource('OSM',             () => searchOsmFarmland(polygon)),
+      runSource('Mossy Oak',       () => searchMossyOakFarmland(polygon)),
     ]);
   } else if (mode === 'cabin') {
     sourceResults = await Promise.all([
@@ -318,6 +320,7 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
       runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
       runSource('OSM',             () => searchOsmCabins(polygon)),
+      runSource('Mossy Oak',       () => searchMossyOakCabins(polygon)),
     ]);
   } else if (mode === 'commercial') {
     // Crexi for live commercial listings; USGS MRDS + curated silo registry
