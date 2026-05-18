@@ -253,24 +253,25 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
   // Commercial-mode thresholds aren't enforced server-side today — Crexi
   // doesn't expose lot-size on every card — but we still surface them in
   // the saved-search record so the UI can filter client-side.
+  // Acreage is now a post-scrape refinement filter applied client-side, so we
+  // pull in everything that meets the polygon + sqft criteria and let the
+  // user pick a bucket on the results page. Min/max acres in the DB record
+  // (legacy from earlier sessions) are honored only if non-null.
   const defaults = mode === 'cabin'
-    ? { minHouseSqft: 2000, minLotAcres: 20 }
+    ? { minHouseSqft: 2000 }
     : mode === 'commercial'
-      ? { minHouseSqft: 1500, minLotAcres: 1 }
-      : { minHouseSqft: 2500, minLotAcres: 5 };
+      ? { minHouseSqft: 1500 }
+      : { minHouseSqft: 2500 };
   const filters = {
     minHouseSqft: minHouseSqft ?? defaults.minHouseSqft,
     maxHouseSqft: maxHouseSqft ?? null,  // null = no cap
-    minLotAcres: minLotAcres ?? defaults.minLotAcres,
-    maxLotAcres: maxLotAcres ?? null,    // null = no cap (20+ bucket)
+    minLotAcres:  minLotAcres ?? 0,      // 0 = no floor (was: per-mode default)
+    maxLotAcres:  maxLotAcres ?? null,
   };
   const sqftRange = filters.maxHouseSqft
     ? `${filters.minHouseSqft}-${filters.maxHouseSqft} sqft`
     : `≥${filters.minHouseSqft} sqft`;
-  const acresRange = filters.maxLotAcres
-    ? `${filters.minLotAcres}-${filters.maxLotAcres} ac`
-    : `≥${filters.minLotAcres} ac`;
-  onProgress({ type: 'status', message: `Filters: ${sqftRange} house, ${acresRange}` });
+  onProgress({ type: 'status', message: `Filters: ${sqftRange} house (acreage filterable on results)` });
   const cities = citiesWithinPolygon(polygon);
   const centroid = polygonCentroid(polygon);
   console.log(`\n── Area scrape (${mode}) — ${cities.length} cities inside polygon (~centroid ${centroid?.lat.toFixed(3)}, ${centroid?.lng.toFixed(3)}, ${polygon.length} vertices) ──`);

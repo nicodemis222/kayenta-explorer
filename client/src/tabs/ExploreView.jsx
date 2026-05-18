@@ -67,6 +67,9 @@ export default function ExploreView() {
   // Minimum bunker-fit score (commercial mode only) — slider 0-10.
   // Defaults to 3 in commercial mode (skip pure noise) and 0 elsewhere.
   const [minBunker, setMinBunker] = useState(0);
+  // Acreage bucket filter, applied to listings post-scrape. null = no filter.
+  // Buckets are { min, max } where null max means "and up".
+  const [acreageBucket, setAcreageBucket] = useState(null);
 
   // Map ↔ cards interaction
   const [focusedListingId, setFocusedListingId] = useState(null);
@@ -138,6 +141,7 @@ export default function ExploreView() {
     setDrawing({ phase: 'idle', vertices: [] });
     // Bunker fit is the most useful axis when hunting commercial conversions,
     // so default to it on mode change. Other modes go back to price-ascending.
+    setAcreageBucket(null); // clear acreage refinement on mode change
     if (mode === 'commercial') {
       setSortKey('bunker');
       setSortDir('desc');
@@ -273,17 +277,16 @@ export default function ExploreView() {
     if (drawing.phase !== 'done' || !drawing.vertices || drawing.vertices.length < 3) return;
     const centroidLat = drawing.vertices.reduce((s, v) => s + v[0], 0) / drawing.vertices.length;
     const centroidLng = drawing.vertices.reduce((s, v) => s + v[1], 0) / drawing.vertices.length;
-    // Per-mode defaults: each is a {min,max} acreage bucket (null max = "+").
+    // Per-mode default sqft only — acreage is now a post-scrape refinement
+    // filter in the results header rather than a pre-search constraint.
     const defaults =
-      mode === 'cabin'      ? { minSqft: 2000, minAcres: 20, maxAcres: null } :   // 20+
-      mode === 'commercial' ? { minSqft: 1500, minAcres: 1,  maxAcres: 5    } :   // 1-5
-                              { minSqft: 2500, minAcres: 5,  maxAcres: 10   };    // 5-10
+      mode === 'cabin'      ? { minSqft: 2000 } :
+      mode === 'commercial' ? { minSqft: 1500 } :
+                              { minSqft: 2500 };
     setSavePrompt({
       name: `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`,
       minSqft: defaults.minSqft,
       maxSqft: 0,                 // 0 = no upper bound
-      minAcres: defaults.minAcres,
-      maxAcres: defaults.maxAcres,
       mode,
     });
   };
@@ -291,7 +294,7 @@ export default function ExploreView() {
   // Step 2: user confirmed the modal — create + stream the scrape.
   const handleConfirmSave = async () => {
     if (!savePrompt) return;
-    const { name, minSqft, maxSqft, minAcres, maxAcres } = savePrompt;
+    const { name, minSqft, maxSqft } = savePrompt;
     if (!name || !name.trim()) return;
     const vertices = drawing.vertices;
     try {
@@ -301,8 +304,6 @@ export default function ExploreView() {
         polygon: vertices,
         min_house_sqft: minSqft,
         max_house_sqft: maxSqft || null,
-        min_lot_acres: minAcres,
-        max_lot_acres: maxAcres || null,
       });
       setSavePrompt(null);
       setDrawing({ phase: 'idle', vertices: [] });
@@ -349,6 +350,20 @@ export default function ExploreView() {
   const minP = minPrice === '' ? null : Number(minPrice);
   const maxP = maxPrice === '' ? null : Number(maxPrice);
 
+  // Pull a numeric acres value from whichever signal a listing carries.
+  // Priority: county-GIS parcel (authoritative) > lot_size text ("5 acres",
+  // "217,800 sqft"). Returns null when nothing parses.
+  function listingAcres(l) {
+    if (l.parcel && Number.isFinite(+l.parcel.acres)) return +l.parcel.acres;
+    if (!l.lot_size) return null;
+    const ls = String(l.lot_size).toLowerCase();
+    const sqftM = ls.match(/([\d,.]+)\s*sqft/);
+    if (sqftM) return Number(sqftM[1].replace(/,/g, '')) / 43560;
+    const acM  = ls.match(/([\d,.]+)\s*(?:acres?|ac)\b/);
+    if (acM)   return Number(acM[1].replace(/,/g, ''));
+    return null;
+  }
+
   const filteredListings = listings
     .filter(l => {
       const amen = Array.isArray(l.amenities) ? l.amenities : [];
@@ -362,6 +377,15 @@ export default function ExploreView() {
         const tag = amen.find(a => String(a).startsWith('feature:bunker-score:'));
         const s = tag ? Number(String(tag).split(':').pop()) : 0;
         if (s < minBunker) return false;
+      }
+      // Acreage bucket gate. Listings whose acreage can't be determined are
+      // hidden whenever a bucket is active — the bucket is a refinement,
+      // and undecidable data shouldn't sneak through.
+      if (acreageBucket) {
+        const ac = listingAcres(l);
+        if (ac == null) return false;
+        if (ac < acreageBucket.min) return false;
+        if (acreageBucket.max != null && ac >= acreageBucket.max) return false;
       }
       return true;
     })
@@ -439,31 +463,6 @@ export default function ExploreView() {
                     <option key={v} value={v}>max {v.toLocaleString()}</option>
                   )}
                 </select>
-              </div>
-            </div>
-            <div className="save-field">
-              <span>Acreage bucket</span>
-              <div className="acreage-buckets">
-                {[
-                  { min: 0,  max: 1,    label: '0–1 ac'   },
-                  { min: 1,  max: 5,    label: '1–5 ac'   },
-                  { min: 5,  max: 10,   label: '5–10 ac'  },
-                  { min: 10, max: 20,   label: '10–20 ac' },
-                  { min: 20, max: null, label: '20+ ac'   },
-                ].map(b => {
-                  const active = savePrompt.minAcres === b.min &&
-                    ((savePrompt.maxAcres ?? null) === b.max);
-                  return (
-                    <button
-                      key={b.label}
-                      type="button"
-                      className={`tier-btn ${active ? 'active' : ''}`}
-                      onClick={() => setSavePrompt(p => ({ ...p, minAcres: b.min, maxAcres: b.max }))}
-                    >
-                      {b.label}
-                    </button>
-                  );
-                })}
               </div>
             </div>
             <div className="save-modal-actions">
@@ -569,6 +568,34 @@ export default function ExploreView() {
                     value={maxPrice}
                     onChange={e => setMaxPrice(e.target.value)}
                   />
+                </div>
+                <div
+                  className="bunker-filter"
+                  title="Filter results by acreage. Uses the county-GIS parcel data when available, otherwise parses the listing's lot_size text. Listings without parseable acreage are hidden when any bucket is active."
+                >
+                  <span className="bunker-filter-label">Acres:</span>
+                  {[
+                    { v: null,                       label: 'Any'    },
+                    { v: { min: 0,  max: 1    },     label: '0–1'    },
+                    { v: { min: 1,  max: 5    },     label: '1–5'    },
+                    { v: { min: 5,  max: 10   },     label: '5–10'   },
+                    { v: { min: 10, max: 20   },     label: '10–20'  },
+                    { v: { min: 20, max: null },     label: '20+'    },
+                  ].map(opt => {
+                    const isActive = opt.v == null
+                      ? acreageBucket == null
+                      : acreageBucket && acreageBucket.min === opt.v.min && acreageBucket.max === opt.v.max;
+                    return (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        className={`tier-btn ${isActive ? 'active' : ''}`}
+                        onClick={() => setAcreageBucket(opt.v)}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
                 {mode === 'commercial' && (
                   <div
