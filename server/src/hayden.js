@@ -17,7 +17,7 @@
  */
 
 import { pointInPolygon } from './cities.js';
-import { detectBunkerFeatures } from './commercial.js';
+import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
 
 const LIST_URL = 'https://www.haydenoutdoors.com/land-for-sale/';
 
@@ -95,6 +95,7 @@ function parseHaydenItem(entry, listingType) {
   if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(text)) features.push('feature:solar');
   if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(text)) features.push('feature:outbuilding');
   if (/\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(text)) features.push('feature:storage');
+  if (BASEMENT_PATTERNS.test(text)) features.push('feature:underground');
 
   // Layer in commercial / bunker-conversion features when the description
   // actually mentions any (e.g. "concrete bunker", "underground storage").

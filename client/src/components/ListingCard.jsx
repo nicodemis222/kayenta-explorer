@@ -56,7 +56,7 @@ export default function ListingCard({ listing }) {
     solar: 'Solar',
     outbuilding: 'Workshop / Barn',
     storage: 'Storage',
-    underground: 'Underground',
+    underground: 'Basement / Underground',
     industrial: 'Industrial',
     'loading-dock': 'Loading Dock',
     'heavy-power': '3-Phase / Heavy Power',

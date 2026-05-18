@@ -9,11 +9,13 @@ const FEATURES = {
     { key: 'feature:water', label: 'Water' },
     { key: 'feature:solar', label: 'Solar' },
     { key: 'feature:outbuilding', label: 'Workshop / Barn' },
+    { key: 'feature:underground', label: 'Basement / Underground' },
   ],
   cabin: [
     { key: 'feature:water', label: 'Water' },
     { key: 'feature:solar', label: 'Solar' },
     { key: 'feature:storage', label: 'Storage' },
+    { key: 'feature:underground', label: 'Basement / Underground' },
   ],
   // Commercial mode is bunker-hunter focused — surface the conversion
   // traits the user actually filters on (FM 5-103 / FEMA P-361 cues).

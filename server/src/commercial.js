@@ -25,6 +25,17 @@
 const UNDERGROUND_PATTERNS =
   /\b(underground|subterranean|earth[- ]?(sheltered|bermed)|sub[- ]?surface|below[- ]?grade|missile (silo|base)|atlas[- ]?[ef]|titan[- ]?[i]+|nike( site)?|fallout shelter|bomb shelter|bunker|cave|cavern|mine shaft|root cellar|vault|cold storage|cold[- ]?war)\b/i;
 
+/**
+ * Lighter "has any kind of underground / below-grade space" pattern, exported
+ * for non-commercial sources. Distinct from UNDERGROUND_PATTERNS (the
+ * hardened-bunker set used by the scorer): this one catches ordinary
+ * residential basements + cellars without inflating bunker-fit. A farmhouse
+ * with a "daylight basement" gets feature:underground but does NOT receive
+ * a bunker-score bump.
+ */
+export const BASEMENT_PATTERNS =
+  /(?<!\b(?:no|without|w\/o|not? a)\s)\b(?:basement|walk[- ]?out basement|daylight basement|finished basement|partial basement|full basement|unfinished basement|cellar|root cellar|storm cellar|storm shelter|fruit cellar|wine cellar|underground (?:storage|workshop|garage|room|shelter)|earth[- ]?(?:sheltered|bermed))\b/i;
+
 const INDUSTRIAL_PATTERNS =
   /\b(industrial|warehouse|manufacturing|machine shop|fabrication|distribution( center)?|flex( space)?|light industrial|heavy industrial|storage facility|self[- ]?storage|auto (repair|body|shop)|truck (terminal|stop)|garage|metal building|steel building|pre[- ]?engineered)\b/i;
 

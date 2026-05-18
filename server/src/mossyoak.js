@@ -12,6 +12,7 @@
  */
 
 import { pointInPolygon } from './cities.js';
+import { BASEMENT_PATTERNS } from './commercial.js';
 
 const ROOT = 'https://www.mossyoakproperties.com/land-for-sale/';
 const MAX_PAGES = 10;
@@ -96,6 +97,7 @@ function cardToListing(card, listingType) {
   if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(text)) features.push('feature:solar');
   if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(text)) features.push('feature:outbuilding');
   if (/\b(storage|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(text)) features.push('feature:storage');
+  if (BASEMENT_PATTERNS.test(text)) features.push('feature:underground');
 
   return {
     id: `mossyoak_${listingType}_${card.id}`,

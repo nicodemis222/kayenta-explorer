@@ -15,7 +15,7 @@
  */
 
 import { pointInPolygon, polygonBbox } from './cities.js';
-import { detectBunkerFeatures } from './commercial.js';
+import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
 
 // Rough bounding boxes for the five regional states.
 // If the user's polygon's bbox doesn't overlap a state's bbox, we can skip every URL
@@ -172,6 +172,7 @@ function buildListing(parsed, listingType) {
   if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(text)) features.push('feature:solar');
   if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(text)) features.push('feature:outbuilding');
   if (/\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(text)) features.push('feature:storage');
+  if (BASEMENT_PATTERNS.test(text)) features.push('feature:underground');
   features.push(...detectBunkerFeatures(text, '', { minScore: 1 }));
 
   const fullAddress = [parsed.address, parsed.city, parsed.state, parsed.zip].filter(Boolean).join(', ');
