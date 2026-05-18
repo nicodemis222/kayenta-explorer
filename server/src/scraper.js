@@ -4,6 +4,8 @@ import { searchHaydenFarmland, searchHaydenCabins } from './hayden.js';
 import { searchUnitedCountryFarmland, searchUnitedCountryCabins } from './unitedcountry.js';
 import { searchLandwatchFarmland, searchLandwatchCabins } from './landwatch.js';
 import { searchCrexiCommercial } from './crexi.js';
+import { searchMinesCommercial } from './mines.js';
+import { searchSilosCommercial } from './silos.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -315,13 +317,14 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
     ]);
   } else if (mode === 'commercial') {
-    // Crexi is the only commercial source today. LoopNet, CommercialSearch
-    // and LandSearch all block our stealth context with Akamai/Cloudflare
-    // interstitials; Realtor.com's GraphQL doesn't surface commercial-typed
-    // listings. Adding more sources here is straightforward once a path
-    // through their bot protection exists.
+    // Crexi for live commercial listings; USGS MRDS + curated silo registry
+    // for bunker-conversion candidates (mines and decommissioned ICBM sites).
+    // The latter two aren't "for sale" feeds — they're discovery sources for
+    // unique structural candidates that almost never appear on MLS.
     sourceResults = await Promise.all([
       runSource('Crexi',          () => searchCrexiCommercial(polygon)),
+      runSource('USGS MRDS',      () => searchMinesCommercial(polygon)),
+      runSource('Silo Registry',  () => searchSilosCommercial(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });
