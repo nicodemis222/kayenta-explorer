@@ -6,6 +6,7 @@ import { searchLandwatchFarmland, searchLandwatchCabins } from './landwatch.js';
 import { searchCrexiCommercial } from './crexi.js';
 import { searchMinesCommercial } from './mines.js';
 import { searchSilosCommercial } from './silos.js';
+import { searchOsmFarmland, searchOsmCabins, searchOsmCommercial } from './overpass.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -308,6 +309,7 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       runSource('Hayden Outdoors', () => searchHaydenFarmland(polygon)),
       runSource('United Country',  () => searchUnitedCountryFarmland(polygon)),
       runSource('LandWatch',       () => searchLandwatchFarmland(polygon)),
+      runSource('OSM',             () => searchOsmFarmland(polygon)),
     ]);
   } else if (mode === 'cabin') {
     sourceResults = await Promise.all([
@@ -315,16 +317,18 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       runSource('Hayden Outdoors', () => searchHaydenCabins(polygon)),
       runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
       runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
+      runSource('OSM',             () => searchOsmCabins(polygon)),
     ]);
   } else if (mode === 'commercial') {
     // Crexi for live commercial listings; USGS MRDS + curated silo registry
     // for bunker-conversion candidates (mines and decommissioned ICBM sites).
-    // The latter two aren't "for sale" feeds — they're discovery sources for
-    // unique structural candidates that almost never appear on MLS.
+    // OSM Overpass adds off-market discovery (industrial, mines, military
+    // bunkers/silos tagged in OpenStreetMap). None are guaranteed for-sale.
     sourceResults = await Promise.all([
       runSource('Crexi',          () => searchCrexiCommercial(polygon)),
       runSource('USGS MRDS',      () => searchMinesCommercial(polygon)),
       runSource('Silo Registry',  () => searchSilosCommercial(polygon)),
+      runSource('OSM',            () => searchOsmCommercial(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });
