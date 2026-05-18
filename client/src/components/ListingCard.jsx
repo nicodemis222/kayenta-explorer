@@ -36,12 +36,17 @@ export default function ListingCard({ listing }) {
   const scoreTag = rawAmenities.find(a => String(a).startsWith('feature:bunker-score:'));
   const bunkerScore = scoreTag ? Number(String(scoreTag).split(':').pop()) : null;
 
-  const featureFlags = rawAmenities
-    .filter(a => {
-      const s = String(a);
-      return s.startsWith('feature:') && !s.startsWith('feature:bunker-score:');
-    })
-    .map(a => String(a).replace('feature:', ''));
+  // Dedup feature flags — a listing can pick up the same feature from multiple
+  // sources (e.g. raw amenities AND the bunker scorer's heuristic), producing
+  // duplicate React keys when rendered.
+  const featureFlags = [...new Set(
+    rawAmenities
+      .filter(a => {
+        const s = String(a);
+        return s.startsWith('feature:') && !s.startsWith('feature:bunker-score:');
+      })
+      .map(a => String(a).replace('feature:', ''))
+  )];
   const amenityList = rawAmenities
     .filter(a => !String(a).startsWith('feature:'))
     .map(a => String(a).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));

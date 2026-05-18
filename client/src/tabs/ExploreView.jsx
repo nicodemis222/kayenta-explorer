@@ -121,10 +121,15 @@ export default function ExploreView() {
   }, [drawing.phase, drawing.vertices?.length]);
 
   // When user toggles mode, clear active selection.
-  // Skip the very first run so the localStorage-restored search isn't clobbered.
-  const modeChangeSkipMount = useRef(true);
+  // Track the *previous* mode instead of a "skip first run" flag — that flag
+  // approach trips React 18 StrictMode (which intentionally double-invokes
+  // effects in dev), causing the mode-change body to fire on initial mount
+  // and clobber the restored search + bump minBunker to 1 (which then
+  // filters out every commercial listing with score 0).
+  const prevModeRef = useRef(mode);
   useEffect(() => {
-    if (modeChangeSkipMount.current) { modeChangeSkipMount.current = false; return; }
+    if (prevModeRef.current === mode) return; // not a real change
+    prevModeRef.current = mode;
     setActiveSearch(null);
     setListings([]);
     setFeatureFilters({});
