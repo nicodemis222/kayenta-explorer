@@ -273,11 +273,9 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
 
   onProgress({ type: 'status', message: `Found ${cities.length} cities inside your area` });
 
-  if (cities.length === 0) {
-    onProgress({ type: 'final', listings: [] });
-    return { total_found: 0, new_listings: 0, cities: 0, message: 'No cities inside polygon' };
-  }
-
+  // Don't early-return on cities==0 anymore — Crexi / MRDS / Silos / OSM all
+  // work purely off the polygon and don't need any cities. Only the Realtor
+  // sources care about city names (and they'll just return 0 quietly).
   const cityNames = cities.map(c => c.name);
   const startedAt = new Date().toISOString();
 

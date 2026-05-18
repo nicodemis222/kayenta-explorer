@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 function formatPrice(price, type) {
   if (!price) return 'N/A';
@@ -28,6 +28,10 @@ export default function ListingCard({ listing }) {
     description, date_posted, date_first_seen, url, price_change,
     image_url, parcel,
   } = listing;
+  const [descExpanded, setDescExpanded] = useState(false);
+  // Mine sites and silos carry richer historical text — show more by default.
+  const isCuratedSource = source === 'usgs-mrds' || source === 'silo-registry';
+  const truncateAt = isCuratedSource ? 320 : 150;
 
   const rawAmenities = Array.isArray(amenities) ? amenities : [];
 
@@ -157,8 +161,19 @@ export default function ListingCard({ listing }) {
         )}
 
         {description && (
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
-            {description.length > 150 ? description.slice(0, 150) + '...' : description}
+          <p
+            style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10, cursor: description.length > truncateAt ? 'pointer' : 'default' }}
+            onClick={(e) => {
+              if (description.length > truncateAt) {
+                e.stopPropagation();
+                setDescExpanded(v => !v);
+              }
+            }}
+            title={description.length > truncateAt ? (descExpanded ? 'Click to collapse' : 'Click to expand') : ''}
+          >
+            {description.length > truncateAt && !descExpanded
+              ? description.slice(0, truncateAt) + '… (more)'
+              : description}
           </p>
         )}
 
