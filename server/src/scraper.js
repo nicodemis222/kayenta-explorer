@@ -6,7 +6,9 @@ import { searchLandwatchFarmland, searchLandwatchCabins } from './landwatch.js';
 import { searchCrexiCommercial } from './crexi.js';
 import { searchMinesCommercial } from './mines.js';
 import { searchSilosCommercial } from './silos.js';
-import { searchOsmFarmland, searchOsmCabins, searchOsmCommercial } from './overpass.js';
+// OSM is commercial-only; farmland/cabin modes intentionally exclude off-market
+// discovery to keep their results to genuine for-sale listings.
+import { searchOsmCommercial } from './overpass.js';
 import { searchMossyOakFarmland, searchMossyOakCabins } from './mossyoak.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
@@ -308,21 +310,25 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
 
   let sourceResults;
   if (mode === 'farmland') {
+    // OSM (off-market discovery) is intentionally excluded for farmland mode —
+    // the user wants only for-sale listings here. OSM stays on for commercial
+    // mode below where off-market mines / silos / industrial parcels are the
+    // explicit goal.
     sourceResults = await Promise.all([
       runSource('Realtor.com',    () => searchRealtorFarmland(cityNames, filters)),
       runSource('Hayden Outdoors', () => searchHaydenFarmland(polygon)),
       runSource('United Country',  () => searchUnitedCountryFarmland(polygon)),
       runSource('LandWatch',       () => searchLandwatchFarmland(polygon)),
-      runSource('OSM',             () => searchOsmFarmland(polygon)),
       runSource('Mossy Oak',       () => searchMossyOakFarmland(polygon)),
     ]);
   } else if (mode === 'cabin') {
+    // OSM excluded for cabin mode for the same reason as farmland — for-sale
+    // listings only.
     sourceResults = await Promise.all([
       runSource('Realtor.com',    () => searchRealtorCabins(cityNames, filters)),
       runSource('Hayden Outdoors', () => searchHaydenCabins(polygon)),
       runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
       runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
-      runSource('OSM',             () => searchOsmCabins(polygon)),
       runSource('Mossy Oak',       () => searchMossyOakCabins(polygon)),
     ]);
   } else if (mode === 'commercial') {
