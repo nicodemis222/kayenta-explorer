@@ -88,6 +88,32 @@ db.exec(`
     completed_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS parcels (
+    parcel_id TEXT PRIMARY KEY,
+    county TEXT NOT NULL,
+    state TEXT NOT NULL,
+    serial_num TEXT,
+    address TEXT,
+    city TEXT,
+    acres REAL,
+    bldg_sqft INTEGER,
+    built_yr INTEGER,
+    prop_class TEXT,
+    primary_res TEXT,
+    total_mkt_value REAL,
+    land_mkt_value REAL,
+    construction TEXT,
+    centroid_lat REAL,
+    centroid_lng REAL,
+    bbox_min_lat REAL,
+    bbox_max_lat REAL,
+    bbox_min_lng REAL,
+    bbox_max_lng REAL,
+    polygon TEXT,
+    fetched_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_parcels_bbox ON parcels(bbox_min_lat, bbox_max_lat, bbox_min_lng, bbox_max_lng);
   CREATE INDEX IF NOT EXISTS idx_listings_type ON listings(type);
   CREATE INDEX IF NOT EXISTS idx_listings_source ON listings(source);
   CREATE INDEX IF NOT EXISTS idx_listings_price ON listings(price);

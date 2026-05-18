@@ -615,6 +615,29 @@ button {
   margin-bottom: 8px;
 }
 
+/* County-assessor (parcel) facts pulled from the GIS layer, shown on cards
+   for listings whose lat/lng falls inside a supported county. */
+.parcel-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 6px 0 8px;
+  padding: 5px 8px;
+  background: var(--bg-card-hover);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+}
+
+.parcel-info-label {
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
 .feature-badge {
   display: inline-block;
   background: var(--green-bg);

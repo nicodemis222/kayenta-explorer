@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from './db.js';
 import { runScrape, runScrapeForArea } from './scraper.js';
 import { pointInPolygon, polygonCentroid, polygonBbox } from './cities.js';
+import { enrichListings } from './parcels.js';
 
 const router = Router();
 
@@ -360,8 +361,11 @@ router.delete('/api/searches/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/searches/:id/listings — listings within this search's polygon
-router.get('/api/searches/:id/listings', (req, res) => {
+// GET /api/searches/:id/listings — listings within this search's polygon.
+// Enriches each listing with parcel data (acres / bldg_sqft / yr_built /
+// prop_class / mkt_value) from the county GIS layer when the listing's
+// coordinates fall inside a supported UT county. Cached after first lookup.
+router.get('/api/searches/:id/listings', async (req, res) => {
   const search = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
   if (!search) return res.status(404).json({ error: 'Search not found' });
 
@@ -373,6 +377,14 @@ router.get('/api/searches/:id/listings', (req, res) => {
   const inside = rows
     .filter(l => polygon ? pointInPolygon(l.latitude, l.longitude, polygon) : false)
     .map(l => ({ ...l, amenities: tryParseJson(l.amenities) }));
+
+  // Best-effort parcel enrichment; if ArcGIS is slow/down, the response still
+  // ships with parcel=null and the UI renders without the extra fields.
+  try {
+    await enrichListings(inside, { concurrency: 4 });
+  } catch (err) {
+    console.warn('  [parcels] enrichment skipped:', err.message);
+  }
 
   res.json({ search: expandSearch(search), listings: inside, count: inside.length });
 });

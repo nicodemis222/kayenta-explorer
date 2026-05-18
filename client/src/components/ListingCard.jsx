@@ -26,7 +26,7 @@ export default function ListingCard({ listing }) {
     source, type, address, price, sqft, bedrooms, bathrooms,
     lot_size, year_built, property_type, status, amenities,
     description, date_posted, date_first_seen, url, price_change,
-    image_url,
+    image_url, parcel,
   } = listing;
 
   const rawAmenities = Array.isArray(amenities) ? amenities : [];
@@ -141,6 +141,20 @@ export default function ListingCard({ listing }) {
           {lot_size && <span>{lot_size}</span>}
           {year_built && <span>Built {year_built}</span>}
         </div>
+
+        {parcel && (
+          <div
+            className="parcel-info"
+            title={`${parcel.county} County assessor record (parcel ${parcel.serial_num || parcel.parcel_id})`}
+          >
+            <span className="parcel-info-label">Assessor:</span>
+            {parcel.acres != null && <span>{Number(parcel.acres).toFixed(2)} ac</span>}
+            {parcel.bldg_sqft ? <span>{parcel.bldg_sqft.toLocaleString()} sqft (bldg)</span> : null}
+            {parcel.built_yr ? <span>built {parcel.built_yr}</span> : null}
+            {parcel.prop_class ? <span>{parcel.prop_class}</span> : null}
+            {parcel.total_mkt_value ? <span>mkt ${Math.round(parcel.total_mkt_value).toLocaleString()}</span> : null}
+          </div>
+        )}
 
         {description && (
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>

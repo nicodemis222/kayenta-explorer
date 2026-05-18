@@ -177,6 +177,27 @@ export default function MapView({
           />
         )}
 
+        {/* Focused-listing parcel polygon (county-GIS overlay). Renders only
+            when the focused listing has parcel data and we can parse its
+            stored GeoJSON ring back into [lat, lng] pairs. */}
+        {(() => {
+          if (!focusedListingId) return null;
+          const f = listings.find(l => l.id === focusedListingId);
+          const ring = (() => {
+            try { return f?.parcel?.polygon ? JSON.parse(f.parcel.polygon) : null; }
+            catch { return null; }
+          })();
+          if (!Array.isArray(ring) || ring.length < 3) return null;
+          // GeoJSON ring is [lng, lat]; Leaflet wants [lat, lng].
+          const positions = ring.map(([x, y]) => [y, x]);
+          return (
+            <Polygon
+              positions={positions}
+              pathOptions={{ color: '#c2785c', fillColor: '#c2785c', fillOpacity: 0.15, weight: 2 }}
+            />
+          );
+        })()}
+
         {/* In-progress polyline + closed polygon */}
         {drawing?.phase === 'drawing' && previewPath.length >= 2 && (
           <Polyline
