@@ -65,6 +65,25 @@ export default function ListingCard({ listing }) {
     bunkerScore >= 6    ? 'high'  :
     bunkerScore >= 3    ? 'medium': 'low';
 
+  // Build the "why this scored" tooltip from the bunker-relevant feature
+  // pills present on this listing. Falls back to a generic explainer when
+  // the listing only has the score tag (rare, but possible).
+  const BUNKER_TRAIT_LABELS = {
+    underground:   'Underground / earth-bermed',
+    industrial:    'Industrial / warehouse',
+    'loading-dock':'Loading dock / drive-in bay',
+    'heavy-power': '3-phase / heavy power',
+    'off-grid':    'Off-grid / solar / propane',
+    water:         'Well / septic / water rights',
+    concrete:      'Concrete / reinforced',
+  };
+  const matchedTraits = featureFlags
+    .filter(f => BUNKER_TRAIT_LABELS[f])
+    .map(f => `• ${BUNKER_TRAIT_LABELS[f]}`);
+  const bunkerTooltip = matchedTraits.length > 0
+    ? `Bunker-conversion fitness: ${bunkerScore}/10.\nMatched traits:\n${matchedTraits.join('\n')}`
+    : `Bunker-conversion fitness: ${bunkerScore}/10. No specific traits matched — score reflects property type only.`;
+
   return (
     <div className="listing-card">
       <div className="card-image">
@@ -87,7 +106,7 @@ export default function ListingCard({ listing }) {
           {bunkerScore != null && (
             <span
               className={`bunker-badge bunker-${bunkerTier}`}
-              title="Bunker-conversion fitness: underground, industrial, loading dock, heavy power, off-grid, well/septic, concrete"
+              title={bunkerTooltip}
             >
               Bunker fit: {bunkerScore}/10
             </span>

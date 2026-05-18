@@ -64,8 +64,13 @@ export function extractPropertyType(text) {
  * Detect bunker-conversion features in arbitrary listing text (title +
  * description + visible card text). Returns an array of `feature:*` tags,
  * including a `feature:bunker-score:N` (0–10).
+ *
+ * `opts.minScore` (default 0) lets non-commercial sources opt out of the
+ * default behaviour: pass `minScore: 1` to skip the score tag entirely
+ * when nothing matched, so a farmland card only carries bunker tags when
+ * there's actual signal (e.g. "underground storage" in the description).
  */
-export function detectBunkerFeatures(rawText, propertyType = '') {
+export function detectBunkerFeatures(rawText, propertyType = '', opts = {}) {
   const text = `${rawText || ''} ${propertyType || ''}`.toLowerCase();
   const features = [];
   let score = 0;
@@ -91,8 +96,15 @@ export function detectBunkerFeatures(rawText, propertyType = '') {
 
   // Clamp 0..10 and bucket it so we can filter on coarse tiers.
   score = Math.max(0, Math.min(10, score));
-  features.push(`feature:bunker-score:${score}`);
 
+  // When called from non-commercial sources (`opts.minScore: 1`), suppress
+  // the entire output if nothing of substance matched — keeps farmland and
+  // cabin listings clean unless they actually mention bunker-relevant
+  // features.
+  const minScore = opts.minScore ?? 0;
+  if (score < minScore) return [];
+
+  features.push(`feature:bunker-score:${score}`);
   return features;
 }
 

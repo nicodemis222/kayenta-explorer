@@ -62,6 +62,9 @@ export default function ExploreView() {
   const [sortDir, setSortDir] = useState('asc');       // 'asc' | 'desc'
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
+  // Minimum bunker-fit score (commercial mode only) — slider 0-10.
+  // Defaults to 3 in commercial mode (skip pure noise) and 0 elsewhere.
+  const [minBunker, setMinBunker] = useState(0);
 
   // Map ↔ cards interaction
   const [focusedListingId, setFocusedListingId] = useState(null);
@@ -131,9 +134,11 @@ export default function ExploreView() {
     if (mode === 'commercial') {
       setSortKey('bunker');
       setSortDir('desc');
+      setMinBunker(3); // hide pure-noise low-scoring commercial cards by default
     } else {
       setSortKey('price');
       setSortDir('asc');
+      setMinBunker(0);
     }
   }, [mode]);
 
@@ -338,6 +343,14 @@ export default function ExploreView() {
       if (!Object.entries(featureFilters).every(([k, on]) => !on || amen.includes(k))) return false;
       if (minP != null && (l.price ?? 0) < minP) return false;
       if (maxP != null && (l.price ?? Infinity) > maxP) return false;
+      // Min-bunker-fit gate (commercial mode). A listing without a bunker
+      // score is treated as 0 — that matches what we expect for non-
+      // commercial sources without bunker signal.
+      if (minBunker > 0) {
+        const tag = amen.find(a => String(a).startsWith('feature:bunker-score:'));
+        const s = tag ? Number(String(tag).split(':').pop()) : 0;
+        if (s < minBunker) return false;
+      }
       return true;
     })
     .sort((a, b) => {
@@ -517,6 +530,20 @@ export default function ExploreView() {
                     onChange={e => setMaxPrice(e.target.value)}
                   />
                 </div>
+                {mode === 'commercial' && (
+                  <div className="bunker-filter" title="Hide listings below this bunker-fit score (0–10)">
+                    <label htmlFor="bunker-slider">Min fit {minBunker}/10</label>
+                    <input
+                      id="bunker-slider"
+                      type="range"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={minBunker}
+                      onChange={e => setMinBunker(Number(e.target.value))}
+                    />
+                  </div>
+                )}
                 <div className="sort-control">
                   <select value={sortKey} onChange={e => setSortKey(e.target.value)}>
                     <option value="price">Sort: Price</option>

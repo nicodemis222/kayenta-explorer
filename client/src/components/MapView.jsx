@@ -208,18 +208,35 @@ export default function MapView({
         ))}
 
         {/* Listing markers — focused one renders in accent color and slightly larger
-            so the user can find the card's property without the map jumping around. */}
+            so the user can find the card's property without the map jumping around.
+            For commercial listings, the base color also encodes bunker-fit tier so
+            high-scoring candidates pop out of a busy map. */}
         {listings.map(l => {
           if (!l.latitude || !l.longitude) return null;
           const isFocused = focusedListingId === l.id;
+
+          // Pull the bunker score (if any) so we can tier-color the marker.
+          // Commercial listings always carry one; cross-source farmland/cabin
+          // listings only carry one when bunker patterns actually matched.
+          const tag = Array.isArray(l.amenities)
+            ? l.amenities.find(a => String(a).startsWith('feature:bunker-score:'))
+            : null;
+          const score = tag ? Number(String(tag).split(':').pop()) : null;
+          let baseColor = '#3b82f6', strokeColor = '#1e3a8a'; // default blue
+          if (score != null) {
+            if (score >= 6)      { baseColor = '#dc2626'; strokeColor = '#7f1d1d'; } // red high
+            else if (score >= 3) { baseColor = '#f59e0b'; strokeColor = '#92400e'; } // amber medium
+            else                 { baseColor = '#94a3b8'; strokeColor = '#475569'; } // slate low
+          }
+
           return (
             <CircleMarker
               key={l.id}
               center={[l.latitude, l.longitude]}
               radius={isFocused ? 10 : 6}
               pathOptions={{
-                color: isFocused ? '#c2785c' : '#1e3a8a',
-                fillColor: isFocused ? '#c2785c' : '#3b82f6',
+                color: isFocused ? '#c2785c' : strokeColor,
+                fillColor: isFocused ? '#c2785c' : baseColor,
                 fillOpacity: 1,
                 weight: 2,
               }}
@@ -227,9 +244,14 @@ export default function MapView({
             >
               <Popup>
                 <div style={{ fontSize: 13 }}>
-                  <strong>${l.price?.toLocaleString() || 'N/A'}</strong><br />
+                  <strong>${l.price?.toLocaleString() || 'N/A'}</strong>
+                  {score != null && (
+                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: baseColor }}>
+                      · Bunker {score}/10
+                    </span>
+                  )}<br />
                   {l.address}<br />
-                  {l.sqft?.toLocaleString()} sqft · {l.lot_size}<br />
+                  {l.sqft?.toLocaleString() || '—'} sqft · {l.lot_size || '—'}<br />
                   {l.url && <a href={l.url} target="_blank" rel="noopener noreferrer">View listing</a>}
                 </div>
               </Popup>

@@ -26,6 +26,7 @@
 
 import { CITIES, polygonBbox, pointInPolygon } from './cities.js';
 import { newStealthContext, warmup } from './browser.js';
+import { detectBunkerFeatures } from './commercial.js';
 
 const STATE_NAME_TO_SLUG = {
   ut: 'utah', nv: 'nevada', az: 'arizona', co: 'colorado', nm: 'new-mexico',
@@ -153,6 +154,8 @@ function parseLandwatchItem(entry, listingType) {
   if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(desc)) features.push('feature:solar');
   if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(desc)) features.push('feature:outbuilding');
   if (/\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(desc)) features.push('feature:storage');
+  // Bunker-conversion bonus features (only attach when something matched).
+  features.push(...detectBunkerFeatures(desc, '', { minScore: 1 }));
 
   const street = addr.streetAddress || '';
   const fullAddress = [street, locality, region, addr.postalCode].filter(Boolean).join(', ');

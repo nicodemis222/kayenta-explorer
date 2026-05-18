@@ -3,6 +3,8 @@
  * No headless browser needed — just HTTP POST requests.
  */
 
+import { detectBunkerFeatures } from './commercial.js';
+
 const API_URL = 'https://www.realtor.com/frontdoor/graphql';
 
 const HEADERS = {
@@ -171,6 +173,9 @@ function detectFeatures(item) {
   if (SOLAR_PATTERNS.test(blob)) features.push('feature:solar');
   if (OUTBUILDING_PATTERNS.test(blob)) features.push('feature:outbuilding');
   if (STORAGE_PATTERNS.test(blob)) features.push('feature:storage');
+  // Bunker-conversion bonus: only emit when the listing text actually
+  // mentions something underground / industrial / hardened.
+  features.push(...detectBunkerFeatures(blob, '', { minScore: 1 }));
   return features;
 }
 
