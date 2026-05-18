@@ -136,6 +136,7 @@ router.get('/api/stats', (req, res) => {
   const rentalCount = db.prepare("SELECT COUNT(*) as c FROM listings WHERE type = 'rental'").get().c;
   const farmlandCount = db.prepare("SELECT COUNT(*) as c FROM listings WHERE type = 'farmland'").get().c;
   const cabinCount = db.prepare("SELECT COUNT(*) as c FROM listings WHERE type = 'cabin'").get().c;
+  const commercialCount = db.prepare("SELECT COUNT(*) as c FROM listings WHERE type = 'commercial'").get().c;
   const priceChangeCount = db.prepare(`
     SELECT COUNT(DISTINCT listing_id) as c FROM price_history
     GROUP BY listing_id HAVING COUNT(*) > 1
@@ -153,6 +154,7 @@ router.get('/api/stats', (req, res) => {
     rentals: rentalCount,
     farmland: farmlandCount,
     cabin: cabinCount,
+    commercial: commercialCount,
     price_changes: priceChangeCount,
     avg_price: Math.round(avgPrice || 0),
     min_price: minPrice || 0,
@@ -192,8 +194,8 @@ router.post('/api/searches', async (req, res) => {
   if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
     return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
   }
-  if (mode !== 'farmland' && mode !== 'cabin') {
-    return res.status(400).json({ error: 'mode must be farmland or cabin' });
+  if (mode !== 'farmland' && mode !== 'cabin' && mode !== 'commercial') {
+    return res.status(400).json({ error: 'mode must be farmland, cabin, or commercial' });
   }
 
   const centroid = polygonCentroid(polygon);
@@ -268,8 +270,8 @@ router.post('/api/searches/sync', async (req, res) => {
   if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
     return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
   }
-  if (mode !== 'farmland' && mode !== 'cabin') {
-    return res.status(400).json({ error: 'mode must be farmland or cabin' });
+  if (mode !== 'farmland' && mode !== 'cabin' && mode !== 'commercial') {
+    return res.status(400).json({ error: 'mode must be farmland, cabin, or commercial' });
   }
 
   const centroid = polygonCentroid(polygon);

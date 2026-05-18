@@ -78,7 +78,7 @@ export default function App() {
       <header className="header">
         <div className="header-brand">
           <h1>Kayenta Explorer</h1>
-          <span>Farmland & Cabins</span>
+          <span>Farmland · Cabins · Commercial</span>
         </div>
 
         <div className="header-actions">

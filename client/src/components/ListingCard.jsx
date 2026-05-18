@@ -30,18 +30,40 @@ export default function ListingCard({ listing }) {
   } = listing;
 
   const rawAmenities = Array.isArray(amenities) ? amenities : [];
-  const featureFlags = rawAmenities.filter(a => String(a).startsWith('feature:'))
+
+  // Pull the commercial bunker-score out separately so we can render it as
+  // a prominent badge instead of as a plain feature pill.
+  const scoreTag = rawAmenities.find(a => String(a).startsWith('feature:bunker-score:'));
+  const bunkerScore = scoreTag ? Number(String(scoreTag).split(':').pop()) : null;
+
+  const featureFlags = rawAmenities
+    .filter(a => {
+      const s = String(a);
+      return s.startsWith('feature:') && !s.startsWith('feature:bunker-score:');
+    })
     .map(a => String(a).replace('feature:', ''));
   const amenityList = rawAmenities
     .filter(a => !String(a).startsWith('feature:'))
     .map(a => String(a).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
 
   const featureLabels = {
-    water: 'Water',
+    water: 'Water / Septic',
     solar: 'Solar',
     outbuilding: 'Workshop / Barn',
     storage: 'Storage',
+    underground: 'Underground',
+    industrial: 'Industrial',
+    'loading-dock': 'Loading Dock',
+    'heavy-power': '3-Phase / Heavy Power',
+    'off-grid': 'Off-Grid Ready',
+    concrete: 'Concrete / Reinforced',
   };
+
+  // 0–10 → tier label for the badge.
+  const bunkerTier =
+    bunkerScore == null ? null :
+    bunkerScore >= 6    ? 'high'  :
+    bunkerScore >= 3    ? 'medium': 'low';
 
   return (
     <div className="listing-card">
@@ -62,6 +84,14 @@ export default function ListingCard({ listing }) {
       <div className="card-header">
         <div>
           <div className="price">{formatPrice(price, type)}</div>
+          {bunkerScore != null && (
+            <span
+              className={`bunker-badge bunker-${bunkerTier}`}
+              title="Bunker-conversion fitness: underground, industrial, loading dock, heavy power, off-grid, well/septic, concrete"
+            >
+              Bunker fit: {bunkerScore}/10
+            </span>
+          )}
           {price_change && (
             <span className={`price-change ${price_change.difference < 0 ? 'down' : 'up'}`}>
               {price_change.difference < 0 ? '\u2193' : '\u2191'}

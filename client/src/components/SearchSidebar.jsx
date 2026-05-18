@@ -44,6 +44,13 @@ export default function SearchSidebar({
         >
           Cabin
         </button>
+        <button
+          className={`mode-btn ${mode === 'commercial' ? 'active' : ''}`}
+          onClick={() => onModeChange('commercial')}
+          title="Commercial / underground / industrial — bunker-conversion candidates"
+        >
+          Commercial
+        </button>
       </div>
 
       <button className="btn btn-primary new-search-btn" onClick={onNew}>

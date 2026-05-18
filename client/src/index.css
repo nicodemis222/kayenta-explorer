@@ -626,6 +626,22 @@ button {
   margin-right: 4px;
 }
 
+/* Bunker-conversion fitness badge — shown only on commercial listings.
+   Colors track tier: high = green, medium = amber, low = neutral. */
+.bunker-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.bunker-badge.bunker-high   { background: #d6f3df; color: #155f2c; border-color: #2f8e4c; }
+.bunker-badge.bunker-medium { background: #fde7c2; color: #7a4500; border-color: #c2785c; }
+.bunker-badge.bunker-low    { background: #ececec; color: #555;    border-color: #c8c8c8; }
+
 .filter-bar {
   display: flex;
   gap: 8px;

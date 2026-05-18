@@ -3,6 +3,7 @@ import { searchRedfinHomes, searchRedfinLand, searchRedfinRentals } from './redf
 import { searchHaydenFarmland, searchHaydenCabins } from './hayden.js';
 import { searchUnitedCountryFarmland, searchUnitedCountryCabins } from './unitedcountry.js';
 import { searchLandwatchFarmland, searchLandwatchCabins } from './landwatch.js';
+import { searchCrexiCommercial } from './crexi.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -244,10 +245,15 @@ export async function runScrape() {
  *   { type: 'final',         listings: [...deduped...] }
  */
 export async function runScrapeForArea({ mode, polygon, minHouseSqft, minLotAcres, onProgress = () => {} }) {
-  // Resolve filter thresholds with sensible defaults per mode
+  // Resolve filter thresholds with sensible defaults per mode.
+  // Commercial-mode thresholds aren't enforced server-side today — Crexi
+  // doesn't expose lot-size on every card — but we still surface them in
+  // the saved-search record so the UI can filter client-side.
   const defaults = mode === 'cabin'
     ? { minHouseSqft: 2000, minLotAcres: 20 }
-    : { minHouseSqft: 2500, minLotAcres: 5 };
+    : mode === 'commercial'
+      ? { minHouseSqft: 1500, minLotAcres: 1 }
+      : { minHouseSqft: 2500, minLotAcres: 5 };
   const filters = {
     minHouseSqft: minHouseSqft ?? defaults.minHouseSqft,
     minLotAcres: minLotAcres ?? defaults.minLotAcres,
@@ -303,6 +309,15 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, minLotAcre
       runSource('Hayden Outdoors', () => searchHaydenCabins(polygon)),
       runSource('United Country',  () => searchUnitedCountryCabins(polygon)),
       runSource('LandWatch',       () => searchLandwatchCabins(polygon)),
+    ]);
+  } else if (mode === 'commercial') {
+    // Crexi is the only commercial source today. LoopNet, CommercialSearch
+    // and LandSearch all block our stealth context with Akamai/Cloudflare
+    // interstitials; Realtor.com's GraphQL doesn't surface commercial-typed
+    // listings. Adding more sources here is straightforward once a path
+    // through their bot protection exists.
+    sourceResults = await Promise.all([
+      runSource('Crexi',          () => searchCrexiCommercial(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });

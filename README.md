@@ -6,12 +6,15 @@ Regional real-estate scraper and dashboard built around Ivins, UT.
 
 - **Farmland** — properties within ~3 hrs of Ivins, UT with a 2,500+ sqft home on 5+ acres. Surfaces water (creek / well / water rights / irrigation), solar, and workshop/barn features detected from listing text.
 - **Cabin** — properties within ~3 hrs of Ivins with 2,000+ sqft and 20+ acres (or explicitly described as cabin/log home with 5+ acres). Surfaces water, solar, and storage features.
+- **Commercial** — industrial / underground / off-grid-capable commercial real estate, targeted at bunker-conversion candidates (FM 5-103 / FEMA P-361 cues). Each listing is scored 0–10 ("bunker fit") on underground / earth-bermed structure, industrial construction, loading dock, 3-phase power, off-grid utilities, well/septic, and concrete/reinforced. Sorted by score by default. Source: Crexi (state-level browse via headless Chromium). LoopNet, CommercialSearch, LandSearch and Realtor commercial all block free scraping today — extend `server/src/scraper.js` if a path through becomes available.
 - **Ivins** — original Kayenta/Ivins views: homes for sale, land, rentals, and price changes.
 
 ## Data sources
 
-- Realtor.com GraphQL (`/frontdoor/graphql`)
-- Redfin Stingray GIS / rentals API
+- Realtor.com GraphQL (`/frontdoor/graphql`) — homes, land, rentals, farmland, cabins
+- Redfin Stingray GIS / rentals API — homes, land, rentals
+- Hayden Outdoors, United Country, LandWatch — regional farmland / cabin
+- Crexi — commercial real estate (bunker-conversion mode)
 
 Regional scraping iterates a fixed list of nearby cities: Ivins, St. George, Hurricane, Washington, Cedar City, Enterprise, Beaver, Kanab, Panguitch UT; Mesquite NV; Page AZ.
 

@@ -15,6 +15,17 @@ const FEATURES = {
     { key: 'feature:solar', label: 'Solar' },
     { key: 'feature:storage', label: 'Storage' },
   ],
+  // Commercial mode is bunker-hunter focused — surface the conversion
+  // traits the user actually filters on (FM 5-103 / FEMA P-361 cues).
+  commercial: [
+    { key: 'feature:underground',  label: 'Underground' },
+    { key: 'feature:industrial',   label: 'Industrial' },
+    { key: 'feature:loading-dock', label: 'Loading Dock' },
+    { key: 'feature:heavy-power',  label: '3-Phase / Heavy Power' },
+    { key: 'feature:off-grid',     label: 'Off-Grid / Solar' },
+    { key: 'feature:water',        label: 'Well / Septic' },
+    { key: 'feature:concrete',     label: 'Concrete / Reinforced' },
+  ],
 };
 
 const LS_KEY = 'kayenta-explore-state';
@@ -47,7 +58,7 @@ export default function ExploreView() {
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
 
   // Result-pane controls
-  const [sortKey, setSortKey] = useState('price');     // 'price' | 'sqft' | 'date'
+  const [sortKey, setSortKey] = useState('price');     // 'price' | 'sqft' | 'date' | 'bunker'
   const [sortDir, setSortDir] = useState('asc');       // 'asc' | 'desc'
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
@@ -115,6 +126,15 @@ export default function ExploreView() {
     setListings([]);
     setFeatureFilters({});
     setDrawing({ phase: 'idle', vertices: [] });
+    // Bunker fit is the most useful axis when hunting commercial conversions,
+    // so default to it on mode change. Other modes go back to price-ascending.
+    if (mode === 'commercial') {
+      setSortKey('bunker');
+      setSortDir('desc');
+    } else {
+      setSortKey('price');
+      setSortDir('asc');
+    }
   }, [mode]);
 
   const handleNew = () => {
@@ -241,7 +261,10 @@ export default function ExploreView() {
     if (drawing.phase !== 'done' || !drawing.vertices || drawing.vertices.length < 3) return;
     const centroidLat = drawing.vertices.reduce((s, v) => s + v[0], 0) / drawing.vertices.length;
     const centroidLng = drawing.vertices.reduce((s, v) => s + v[1], 0) / drawing.vertices.length;
-    const defaults = mode === 'cabin' ? { minSqft: 2000, minAcres: 20 } : { minSqft: 2500, minAcres: 5 };
+    const defaults =
+      mode === 'cabin'      ? { minSqft: 2000, minAcres: 20 } :
+      mode === 'commercial' ? { minSqft: 1500, minAcres: 1 }  :
+                              { minSqft: 2500, minAcres: 5 };
     setSavePrompt({
       name: `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`,
       minSqft: defaults.minSqft,
@@ -323,6 +346,12 @@ export default function ExploreView() {
         if (sortKey === 'price') return l.price ?? 0;
         if (sortKey === 'sqft')  return l.sqft  ?? 0;
         if (sortKey === 'date')  return new Date(l.date_first_seen || 0).getTime();
+        if (sortKey === 'bunker') {
+          const tag = Array.isArray(l.amenities)
+            ? l.amenities.find(a => String(a).startsWith('feature:bunker-score:'))
+            : null;
+          return tag ? Number(String(tag).split(':').pop()) : -1;
+        }
         return 0;
       };
       return (getKey(a) - getKey(b)) * dir;
@@ -493,6 +522,9 @@ export default function ExploreView() {
                     <option value="price">Sort: Price</option>
                     <option value="sqft">Sort: Sqft</option>
                     <option value="date">Sort: Newest</option>
+                    {mode === 'commercial' && (
+                      <option value="bunker">Sort: Bunker Fit</option>
+                    )}
                   </select>
                   <button
                     className="btn-sort-dir"
@@ -513,7 +545,12 @@ export default function ExploreView() {
               <h3>Start exploring</h3>
               <p>
                 Pick a saved search on the left, or click <strong>+ New Search</strong> and
-                trace an area on the map by clicking each corner — close the shape to find {mode === 'farmland' ? 'farmland (2,500+ sqft home, 5+ acres)' : 'cabins (2,000+ sqft, 20+ acres)'} inside it.
+                trace an area on the map by clicking each corner — close the shape to find {
+                  mode === 'farmland'   ? 'farmland (2,500+ sqft home, 5+ acres)' :
+                  mode === 'cabin'      ? 'cabins (2,000+ sqft, 20+ acres)' :
+                  mode === 'commercial' ? 'commercial / industrial / underground properties (bunker-conversion candidates — sorted by bunker score)' :
+                                          'matching properties'
+                } inside it.
               </p>
             </div>
           ) : filteredListings.length === 0 ? (
