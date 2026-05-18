@@ -106,7 +106,14 @@ async function fetchStateCards(page, stateCode) {
       cards = await page.$$eval('[data-cy="propertyTile"]', tiles => tiles.map(tile => {
         const link = tile.querySelector('a[href*="/properties/"]')?.getAttribute('href') || '';
         const text = (tile.innerText || '').replace(/ /g, ' ').trim();
-        return { link, text };
+        // Each tile has multiple <img> nodes: the property photo (first), the
+        // external-link icon, and the broker headshot. We want only the
+        // property photo, which lives under images.crexi.com/assets/.
+        const imgEl = [...tile.querySelectorAll('img')].find(
+          img => img.src && img.src.includes('images.crexi.com/assets/')
+        );
+        const image = imgEl?.src || '';
+        return { link, text, image };
       }));
     } catch (err) {
       console.warn(`    [crexi] ${url}: ${err.message.split('\n')[0]}`);
@@ -207,7 +214,7 @@ function buildListing(card, listingType) {
     status: 'for_sale',
     amenities: JSON.stringify(features),
     description: parsed.title + (parsed.typeLine ? ` — ${parsed.typeLine}` : ''),
-    image_url: '',
+    image_url: card.image || '',
     date_posted: '',
     date_first_seen: now,
     date_last_seen: now,
