@@ -99,6 +99,7 @@ ensureColumn('listings', 'latitude', 'REAL');
 ensureColumn('listings', 'longitude', 'REAL');
 ensureColumn('searches', 'polygon', 'TEXT');
 ensureColumn('searches', 'min_house_sqft', 'INTEGER');
+ensureColumn('searches', 'max_house_sqft', 'INTEGER');
 ensureColumn('searches', 'min_lot_acres', 'REAL');
 
 db.exec(`

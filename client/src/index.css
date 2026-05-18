@@ -642,16 +642,38 @@ button {
 .bunker-badge.bunker-medium { background: #fde7c2; color: #7a4500; border-color: #c2785c; }
 .bunker-badge.bunker-low    { background: #ececec; color: #555;    border-color: #c8c8c8; }
 
-/* Min-bunker-fit slider in commercial-mode results header */
+/* Bunker-fit tier picker in commercial-mode results header */
 .bunker-filter {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
   color: var(--text-muted);
 }
-.bunker-filter label { white-space: nowrap; font-weight: 600; }
-.bunker-filter input[type=range] { width: 110px; accent-color: var(--accent); }
+.bunker-filter-label {
+  font-weight: 600;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+.tier-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.tier-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.tier-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
 
 .filter-bar {
   display: flex;
@@ -889,6 +911,18 @@ button {
   margin-bottom: 14px;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/* Min/max range inside .save-field (e.g. sqft) */
+.save-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.save-range select { flex: 1; }
+.save-range-sep {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .save-field input,

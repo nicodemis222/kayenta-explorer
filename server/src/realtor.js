@@ -229,8 +229,10 @@ async function fetchListingsForCities(cityList) {
 
 export async function searchRealtorFarmland(cityList = REGIONAL_CITIES, opts = {}) {
   const minSqft  = opts.minHouseSqft ?? 2500;
+  const maxSqft  = opts.maxHouseSqft ?? null;
   const minAcres = opts.minLotAcres  ?? 5;
-  console.log(`    [realtor] Querying farmland across ${cityList.length} cities (>=${minSqft} sqft, >=${minAcres} ac)...`);
+  const range    = maxSqft ? `${minSqft}-${maxSqft}` : `>=${minSqft}`;
+  console.log(`    [realtor] Querying farmland across ${cityList.length} cities (${range} sqft, >=${minAcres} ac)...`);
 
   const all = await fetchListingsForCities(cityList);
   const minLotSqft = minAcres * SQFT_PER_ACRE;
@@ -238,7 +240,9 @@ export async function searchRealtorFarmland(cityList = REGIONAL_CITIES, opts = {
     const d = item.description || {};
     const sqft = d.sqft || 0;
     const lot = d.lot_sqft || 0;
-    return sqft >= minSqft && lot >= minLotSqft;
+    if (sqft < minSqft) return false;
+    if (maxSqft && sqft > maxSqft) return false;
+    return lot >= minLotSqft;
   });
 
   console.log(`    [realtor] ${filtered.length} farmland candidates`);
@@ -247,8 +251,10 @@ export async function searchRealtorFarmland(cityList = REGIONAL_CITIES, opts = {
 
 export async function searchRealtorCabins(cityList = REGIONAL_CITIES, opts = {}) {
   const minSqft  = opts.minHouseSqft ?? 2000;
+  const maxSqft  = opts.maxHouseSqft ?? null;
   const minAcres = opts.minLotAcres  ?? 20;
-  console.log(`    [realtor] Querying cabins across ${cityList.length} cities (>=${minSqft} sqft, >=${minAcres} ac)...`);
+  const range    = maxSqft ? `${minSqft}-${maxSqft}` : `>=${minSqft}`;
+  console.log(`    [realtor] Querying cabins across ${cityList.length} cities (${range} sqft, >=${minAcres} ac)...`);
 
   const all = await fetchListingsForCities(cityList);
   const minLotSqft = minAcres * SQFT_PER_ACRE;
@@ -260,9 +266,11 @@ export async function searchRealtorCabins(cityList = REGIONAL_CITIES, opts = {})
     const sqft = d.sqft || 0;
     const lot = d.lot_sqft || 0;
     const text = `${d.text || ''} ${(item.tags || []).join(' ')}`;
-    const meetsSize = sqft >= minSqft && lot >= minLotSqft;
+    if (sqft < minSqft) return false;
+    if (maxSqft && sqft > maxSqft) return false;
+    const meetsSize = lot >= minLotSqft;
     const reads_as_cabin = CABIN_PATTERNS.test(text);
-    return meetsSize || (reads_as_cabin && sqft >= minSqft && lot >= cabinFallbackAcres * SQFT_PER_ACRE);
+    return meetsSize || (reads_as_cabin && lot >= cabinFallbackAcres * SQFT_PER_ACRE);
   });
 
   console.log(`    [realtor] ${filtered.length} cabin candidates`);

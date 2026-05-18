@@ -190,7 +190,7 @@ router.get('/api/searches', (req, res) => {
 // POST /api/searches/:id/run/stream to actually populate listings while
 // streaming progress. (Sync run is still supported via POST /api/searches/:id/run.)
 router.post('/api/searches', async (req, res) => {
-  const { name, mode, polygon, min_house_sqft, min_lot_acres } = req.body || {};
+  const { name, mode, polygon, min_house_sqft, max_house_sqft, min_lot_acres } = req.body || {};
   if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
     return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
   }
@@ -206,11 +206,12 @@ router.post('/api/searches', async (req, res) => {
 
   const now = new Date().toISOString();
   const info = db.prepare(`
-    INSERT INTO searches (name, mode, center_lat, center_lng, radius_mi, polygon, created_at, min_house_sqft, min_lot_acres)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO searches (name, mode, center_lat, center_lng, radius_mi, polygon, created_at, min_house_sqft, max_house_sqft, min_lot_acres)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name, mode, centroid.lat, centroid.lng, radiusMi, JSON.stringify(polygon), now,
     Number.isFinite(+min_house_sqft) ? +min_house_sqft : null,
+    Number.isFinite(+max_house_sqft) && +max_house_sqft > 0 ? +max_house_sqft : null,
     Number.isFinite(+min_lot_acres) ? +min_lot_acres : null,
   );
 
@@ -246,6 +247,7 @@ router.post('/api/searches/:id/run/stream', async (req, res) => {
       mode: row.mode,
       polygon,
       minHouseSqft: row.min_house_sqft ?? undefined,
+      maxHouseSqft: row.max_house_sqft ?? undefined,
       minLotAcres: row.min_lot_acres ?? undefined,
       onProgress,
     });
@@ -312,6 +314,7 @@ router.post('/api/searches/:id/run', async (req, res) => {
       mode: row.mode,
       polygon,
       minHouseSqft: row.min_house_sqft ?? undefined,
+      maxHouseSqft: row.max_house_sqft ?? undefined,
       minLotAcres: row.min_lot_acres ?? undefined,
     });
     db.prepare('UPDATE searches SET last_run_at = ?, result_count = ? WHERE id = ?')
@@ -324,7 +327,7 @@ router.post('/api/searches/:id/run', async (req, res) => {
 
 // PATCH /api/searches/:id — rename and/or update thresholds on a saved search
 router.patch('/api/searches/:id', (req, res) => {
-  const { name, min_house_sqft, min_lot_acres } = req.body || {};
+  const { name, min_house_sqft, max_house_sqft, min_lot_acres } = req.body || {};
   const row = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Search not found' });
 
@@ -335,12 +338,16 @@ router.patch('/api/searches/:id', (req, res) => {
     fields.push('min_house_sqft = ?');
     values.push(Number.isFinite(+min_house_sqft) ? +min_house_sqft : null);
   }
+  if (max_house_sqft !== undefined) {
+    fields.push('max_house_sqft = ?');
+    values.push(Number.isFinite(+max_house_sqft) && +max_house_sqft > 0 ? +max_house_sqft : null);
+  }
   if (min_lot_acres !== undefined) {
     fields.push('min_lot_acres = ?');
     values.push(Number.isFinite(+min_lot_acres) ? +min_lot_acres : null);
   }
   if (fields.length === 0) {
-    return res.status(400).json({ error: 'name, min_house_sqft, or min_lot_acres required' });
+    return res.status(400).json({ error: 'name, min/max_house_sqft, or min_lot_acres required' });
   }
   values.push(req.params.id);
   db.prepare(`UPDATE searches SET ${fields.join(', ')} WHERE id = ?`).run(...values);

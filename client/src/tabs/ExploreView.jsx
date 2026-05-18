@@ -278,6 +278,7 @@ export default function ExploreView() {
     setSavePrompt({
       name: `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`,
       minSqft: defaults.minSqft,
+      maxSqft: 0,                 // 0 = no upper bound
       minAcres: defaults.minAcres,
       mode,
     });
@@ -286,7 +287,7 @@ export default function ExploreView() {
   // Step 2: user confirmed the modal — create + stream the scrape.
   const handleConfirmSave = async () => {
     if (!savePrompt) return;
-    const { name, minSqft, minAcres } = savePrompt;
+    const { name, minSqft, maxSqft, minAcres } = savePrompt;
     if (!name || !name.trim()) return;
     const vertices = drawing.vertices;
     try {
@@ -295,6 +296,7 @@ export default function ExploreView() {
         mode,
         polygon: vertices,
         min_house_sqft: minSqft,
+        max_house_sqft: maxSqft || null,
         min_lot_acres: minAcres,
       });
       setSavePrompt(null);
@@ -409,17 +411,31 @@ export default function ExploreView() {
                 autoFocus
               />
             </label>
-            <label className="save-field">
-              <span>Minimum house sqft</span>
-              <select
-                value={savePrompt.minSqft}
-                onChange={e => setSavePrompt(p => ({ ...p, minSqft: Number(e.target.value) }))}
-              >
-                {[1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000].map(v =>
-                  <option key={v} value={v}>{v.toLocaleString()}+ sqft</option>
-                )}
-              </select>
-            </label>
+            <div className="save-field">
+              <span>House size range (sqft)</span>
+              <div className="save-range">
+                <select
+                  value={savePrompt.minSqft}
+                  onChange={e => setSavePrompt(p => ({ ...p, minSqft: Number(e.target.value) }))}
+                  title="Smallest house size to include"
+                >
+                  {[500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 7500, 10000].map(v =>
+                    <option key={v} value={v}>min {v.toLocaleString()}</option>
+                  )}
+                </select>
+                <span className="save-range-sep">to</span>
+                <select
+                  value={savePrompt.maxSqft || 0}
+                  onChange={e => setSavePrompt(p => ({ ...p, maxSqft: Number(e.target.value) }))}
+                  title="Largest house size to include (or no upper limit)"
+                >
+                  <option value={0}>no max</option>
+                  {[1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 25000, 50000, 100000].map(v =>
+                    <option key={v} value={v}>max {v.toLocaleString()}</option>
+                  )}
+                </select>
+              </div>
+            </div>
             <label className="save-field">
               <span>Minimum lot size</span>
               <select
@@ -536,17 +552,30 @@ export default function ExploreView() {
                   />
                 </div>
                 {mode === 'commercial' && (
-                  <div className="bunker-filter" title="Hide listings below this bunker-fit score (0–10)">
-                    <label htmlFor="bunker-slider">Min fit {minBunker}/10</label>
-                    <input
-                      id="bunker-slider"
-                      type="range"
-                      min="0"
-                      max="10"
-                      step="1"
-                      value={minBunker}
-                      onChange={e => setMinBunker(Number(e.target.value))}
-                    />
+                  <div
+                    className="bunker-filter"
+                    title="Bunker fit = our 0–10 score for how well each commercial listing matches bunker-conversion traits (underground, industrial, loading dock, 3-phase power, off-grid utilities, well/septic, concrete/reinforced). Use the buttons to hide weak candidates."
+                  >
+                    <span className="bunker-filter-label">Bunker fit:</span>
+                    {[
+                      { v: 0, label: 'Any'        },
+                      { v: 3, label: 'Promising' },
+                      { v: 6, label: 'Strong'    },
+                    ].map(opt => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        className={`tier-btn ${minBunker === opt.v ? 'active' : ''}`}
+                        onClick={() => setMinBunker(opt.v)}
+                        title={
+                          opt.v === 0 ? 'Show every commercial listing in the area, including zero-signal ones.' :
+                          opt.v === 3 ? 'Hide pure-noise listings. Keeps industrial-tagged and similar mid-signal candidates.' :
+                                        'Only show listings with strong bunker-conversion signals (multiple matched traits).'
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 )}
                 <div className="sort-control">
