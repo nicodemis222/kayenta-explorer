@@ -248,7 +248,7 @@ export async function runScrape() {
  *   { type: 'source-error',  source: 'Realtor.com', error }
  *   { type: 'final',         listings: [...deduped...] }
  */
-export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSqft, minLotAcres, onProgress = () => {} }) {
+export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSqft, minLotAcres, maxLotAcres, onProgress = () => {} }) {
   // Resolve filter thresholds with sensible defaults per mode.
   // Commercial-mode thresholds aren't enforced server-side today — Crexi
   // doesn't expose lot-size on every card — but we still surface them in
@@ -262,11 +262,15 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
     minHouseSqft: minHouseSqft ?? defaults.minHouseSqft,
     maxHouseSqft: maxHouseSqft ?? null,  // null = no cap
     minLotAcres: minLotAcres ?? defaults.minLotAcres,
+    maxLotAcres: maxLotAcres ?? null,    // null = no cap (20+ bucket)
   };
   const sqftRange = filters.maxHouseSqft
     ? `${filters.minHouseSqft}-${filters.maxHouseSqft} sqft`
     : `≥${filters.minHouseSqft} sqft`;
-  onProgress({ type: 'status', message: `Filters: ${sqftRange} house, ≥${filters.minLotAcres} acres` });
+  const acresRange = filters.maxLotAcres
+    ? `${filters.minLotAcres}-${filters.maxLotAcres} ac`
+    : `≥${filters.minLotAcres} ac`;
+  onProgress({ type: 'status', message: `Filters: ${sqftRange} house, ${acresRange}` });
   const cities = citiesWithinPolygon(polygon);
   const centroid = polygonCentroid(polygon);
   console.log(`\n── Area scrape (${mode}) — ${cities.length} cities inside polygon (~centroid ${centroid?.lat.toFixed(3)}, ${centroid?.lng.toFixed(3)}, ${polygon.length} vertices) ──`);

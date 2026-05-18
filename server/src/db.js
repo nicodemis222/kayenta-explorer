@@ -127,6 +127,7 @@ ensureColumn('searches', 'polygon', 'TEXT');
 ensureColumn('searches', 'min_house_sqft', 'INTEGER');
 ensureColumn('searches', 'max_house_sqft', 'INTEGER');
 ensureColumn('searches', 'min_lot_acres', 'REAL');
+ensureColumn('searches', 'max_lot_acres', 'REAL');
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_listings_lat ON listings(latitude);

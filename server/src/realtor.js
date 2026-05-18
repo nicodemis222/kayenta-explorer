@@ -232,18 +232,23 @@ export async function searchRealtorFarmland(cityList = REGIONAL_CITIES, opts = {
   const minSqft  = opts.minHouseSqft ?? 2500;
   const maxSqft  = opts.maxHouseSqft ?? null;
   const minAcres = opts.minLotAcres  ?? 5;
-  const range    = maxSqft ? `${minSqft}-${maxSqft}` : `>=${minSqft}`;
-  console.log(`    [realtor] Querying farmland across ${cityList.length} cities (${range} sqft, >=${minAcres} ac)...`);
+  const maxAcres = opts.maxLotAcres  ?? null;
+  const sqftRange  = maxSqft  ? `${minSqft}-${maxSqft}`   : `>=${minSqft}`;
+  const acresRange = maxAcres ? `${minAcres}-${maxAcres}` : `>=${minAcres}`;
+  console.log(`    [realtor] Querying farmland across ${cityList.length} cities (${sqftRange} sqft, ${acresRange} ac)...`);
 
   const all = await fetchListingsForCities(cityList);
   const minLotSqft = minAcres * SQFT_PER_ACRE;
+  const maxLotSqft = maxAcres ? maxAcres * SQFT_PER_ACRE : null;
   const filtered = all.filter(item => {
     const d = item.description || {};
     const sqft = d.sqft || 0;
     const lot = d.lot_sqft || 0;
     if (sqft < minSqft) return false;
     if (maxSqft && sqft > maxSqft) return false;
-    return lot >= minLotSqft;
+    if (lot < minLotSqft) return false;
+    if (maxLotSqft && lot > maxLotSqft) return false;
+    return true;
   });
 
   console.log(`    [realtor] ${filtered.length} farmland candidates`);
@@ -254,13 +259,15 @@ export async function searchRealtorCabins(cityList = REGIONAL_CITIES, opts = {})
   const minSqft  = opts.minHouseSqft ?? 2000;
   const maxSqft  = opts.maxHouseSqft ?? null;
   const minAcres = opts.minLotAcres  ?? 20;
-  const range    = maxSqft ? `${minSqft}-${maxSqft}` : `>=${minSqft}`;
-  console.log(`    [realtor] Querying cabins across ${cityList.length} cities (${range} sqft, >=${minAcres} ac)...`);
+  const maxAcres = opts.maxLotAcres  ?? null;
+  const sqftRange  = maxSqft  ? `${minSqft}-${maxSqft}`   : `>=${minSqft}`;
+  const acresRange = maxAcres ? `${minAcres}-${maxAcres}` : `>=${minAcres}`;
+  console.log(`    [realtor] Querying cabins across ${cityList.length} cities (${sqftRange} sqft, ${acresRange} ac)...`);
 
   const all = await fetchListingsForCities(cityList);
   const minLotSqft = minAcres * SQFT_PER_ACRE;
-  // Cabin = meets size OR cabin-described with >= 5 ac and meets sqft (the
-  // "cabin-described" branch lets log/A-frame homes on smaller parcels through).
+  const maxLotSqft = maxAcres ? maxAcres * SQFT_PER_ACRE : null;
+  // Cabin = meets size OR cabin-described with >= 5 ac (or minAcres if smaller).
   const cabinFallbackAcres = Math.min(5, minAcres);
   const filtered = all.filter(item => {
     const d = item.description || {};
@@ -269,6 +276,7 @@ export async function searchRealtorCabins(cityList = REGIONAL_CITIES, opts = {})
     const text = `${d.text || ''} ${(item.tags || []).join(' ')}`;
     if (sqft < minSqft) return false;
     if (maxSqft && sqft > maxSqft) return false;
+    if (maxLotSqft && lot > maxLotSqft) return false;
     const meetsSize = lot >= minLotSqft;
     const reads_as_cabin = CABIN_PATTERNS.test(text);
     return meetsSize || (reads_as_cabin && lot >= cabinFallbackAcres * SQFT_PER_ACRE);

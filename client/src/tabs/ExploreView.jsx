@@ -273,15 +273,17 @@ export default function ExploreView() {
     if (drawing.phase !== 'done' || !drawing.vertices || drawing.vertices.length < 3) return;
     const centroidLat = drawing.vertices.reduce((s, v) => s + v[0], 0) / drawing.vertices.length;
     const centroidLng = drawing.vertices.reduce((s, v) => s + v[1], 0) / drawing.vertices.length;
+    // Per-mode defaults: each is a {min,max} acreage bucket (null max = "+").
     const defaults =
-      mode === 'cabin'      ? { minSqft: 2000, minAcres: 20 } :
-      mode === 'commercial' ? { minSqft: 1500, minAcres: 1 }  :
-                              { minSqft: 2500, minAcres: 5 };
+      mode === 'cabin'      ? { minSqft: 2000, minAcres: 20, maxAcres: null } :   // 20+
+      mode === 'commercial' ? { minSqft: 1500, minAcres: 1,  maxAcres: 5    } :   // 1-5
+                              { minSqft: 2500, minAcres: 5,  maxAcres: 10   };    // 5-10
     setSavePrompt({
       name: `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`,
       minSqft: defaults.minSqft,
       maxSqft: 0,                 // 0 = no upper bound
       minAcres: defaults.minAcres,
+      maxAcres: defaults.maxAcres,
       mode,
     });
   };
@@ -289,7 +291,7 @@ export default function ExploreView() {
   // Step 2: user confirmed the modal — create + stream the scrape.
   const handleConfirmSave = async () => {
     if (!savePrompt) return;
-    const { name, minSqft, maxSqft, minAcres } = savePrompt;
+    const { name, minSqft, maxSqft, minAcres, maxAcres } = savePrompt;
     if (!name || !name.trim()) return;
     const vertices = drawing.vertices;
     try {
@@ -300,6 +302,7 @@ export default function ExploreView() {
         min_house_sqft: minSqft,
         max_house_sqft: maxSqft || null,
         min_lot_acres: minAcres,
+        max_lot_acres: maxAcres || null,
       });
       setSavePrompt(null);
       setDrawing({ phase: 'idle', vertices: [] });
@@ -438,17 +441,31 @@ export default function ExploreView() {
                 </select>
               </div>
             </div>
-            <label className="save-field">
-              <span>Minimum lot size</span>
-              <select
-                value={savePrompt.minAcres}
-                onChange={e => setSavePrompt(p => ({ ...p, minAcres: Number(e.target.value) }))}
-              >
-                {[1, 2, 5, 10, 20, 40, 80, 160].map(v =>
-                  <option key={v} value={v}>{v}+ acres</option>
-                )}
-              </select>
-            </label>
+            <div className="save-field">
+              <span>Acreage bucket</span>
+              <div className="acreage-buckets">
+                {[
+                  { min: 0,  max: 1,    label: '0–1 ac'   },
+                  { min: 1,  max: 5,    label: '1–5 ac'   },
+                  { min: 5,  max: 10,   label: '5–10 ac'  },
+                  { min: 10, max: 20,   label: '10–20 ac' },
+                  { min: 20, max: null, label: '20+ ac'   },
+                ].map(b => {
+                  const active = savePrompt.minAcres === b.min &&
+                    ((savePrompt.maxAcres ?? null) === b.max);
+                  return (
+                    <button
+                      key={b.label}
+                      type="button"
+                      className={`tier-btn ${active ? 'active' : ''}`}
+                      onClick={() => setSavePrompt(p => ({ ...p, minAcres: b.min, maxAcres: b.max }))}
+                    >
+                      {b.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <div className="save-modal-actions">
               <button className="btn" onClick={handleCancelSavePrompt}>Cancel</button>
               <button className="btn btn-primary" onClick={handleConfirmSave} disabled={!savePrompt.name.trim()}>

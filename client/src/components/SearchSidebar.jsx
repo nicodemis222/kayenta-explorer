@@ -76,7 +76,7 @@ export default function SearchSidebar({
               <div className="sidebar-item-sub">
                 {Array.isArray(s.polygon) ? `${s.polygon.length}-point area` : `${(+s.radius_mi).toFixed(0)}mi radius`} · {s.result_count || 0} results · {formatDate(s.last_run_at)}
               </div>
-              {(s.min_house_sqft || s.max_house_sqft || s.min_lot_acres) && (
+              {(s.min_house_sqft || s.max_house_sqft || s.min_lot_acres || s.max_lot_acres) && (
                 <div className="sidebar-item-sub">
                   {s.min_house_sqft || s.max_house_sqft ? (
                     s.max_house_sqft
@@ -84,7 +84,11 @@ export default function SearchSidebar({
                       : `≥ ${s.min_house_sqft.toLocaleString()} sqft`
                   ) : '—'}
                   {' · '}
-                  {s.min_lot_acres ? `≥ ${s.min_lot_acres} ac` : '—'}
+                  {s.max_lot_acres
+                    ? `${s.min_lot_acres ?? 0}–${s.max_lot_acres} ac`
+                    : s.min_lot_acres
+                      ? `${s.min_lot_acres}+ ac`
+                      : '—'}
                 </div>
               )}
               <div className="sidebar-item-actions">

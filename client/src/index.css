@@ -937,6 +937,13 @@ button {
 }
 
 /* Min/max range inside .save-field (e.g. sqft) */
+/* Acreage bucket selector inside the save modal — uses .tier-btn for chips */
+.acreage-buckets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .save-range {
   display: flex;
   align-items: center;
