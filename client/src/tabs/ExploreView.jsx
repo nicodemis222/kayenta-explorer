@@ -661,10 +661,18 @@ export default function ExploreView() {
               </p>
             </div>
           ) : filteredListings.length === 0 ? (
-            <div className="empty-state">
-              <h3>No matches in this area</h3>
-              <p>Try a larger radius or clear feature filters.</p>
-            </div>
+            scrapeStatus?.isRunning ? (
+              <div className="empty-state">
+                <div className="spinner" />
+                <h3>Waiting for download…</h3>
+                <p>{scrapeStatus.message || 'Pulling listings from sources — results will appear as each source responds.'}</p>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <h3>No matches in this area</h3>
+                <p>Try a larger radius or clear feature filters.</p>
+              </div>
+            )
           ) : (
             <div className="listings-grid">
               {filteredListings.map(l => (
