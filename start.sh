@@ -22,8 +22,40 @@ API_PORT_PREF="${PORT:-3001}"
 echo "Starting Kayenta Explorer..."
 echo ""
 
-# Clear any stale .port file from a previous run so we don't read it by mistake.
-rm -f "$DIR/server/.port"
+# Clear any stale .port / .api.pid / .vite.log so a previous crashed run
+# can't make us read live-process state that isn't actually live.
+rm -f "$DIR/server/.port" "$DIR/server/.api.pid" "$DIR/.vite.log"
+
+# Sweep orphan kayenta-explorer processes from a previous crashed run.
+# Without this sweep, a crashed launcher leaves a vite + esbuild pair holding
+# 100-200 MB and a port behind every restart.
+#
+# Two match passes — both anchored on this project so we never touch another
+# app's processes:
+#   1. argv contains the absolute project path (catches anything launched
+#      with absolute paths, which is what npm exec + start.sh produce)
+#   2. process cwd IS the project dir (catches processes launched with
+#      relative-path argv from inside the project, which pgrep -f can't see)
+collect_orphans() {
+  local mine=$1
+  # Pass 1: by argv
+  pgrep -f "$DIR/(client|server)" 2>/dev/null \
+    | grep -v "^$mine\$" || true
+  # Pass 2: by cwd. lsof -d cwd is cheaper than walking every pid; restrict
+  # to processes whose cwd is the project root, client subdir, or server.
+  lsof -d cwd 2>/dev/null \
+    | awk -v dir="$DIR" '$NF == dir || $NF == dir"/client" || $NF == dir"/server" { print $2 }' \
+    | grep -v "^$mine\$" || true
+}
+ORPHANS=$(collect_orphans "$$" | sort -u)
+if [ -n "$ORPHANS" ]; then
+  echo "Sweeping orphan processes from a previous run: $(echo "$ORPHANS" | tr '\n' ' ')"
+  echo "$ORPHANS" | xargs -r kill 2>/dev/null || true
+  sleep 0.5
+  # Anything that survived SIGTERM gets SIGKILL.
+  SURVIVORS=$(collect_orphans "$$" | sort -u)
+  [ -n "$SURVIVORS" ] && echo "$SURVIVORS" | xargs -r kill -9 2>/dev/null || true
+fi
 
 # Write our own PID to .launcher.pid so the in-app Shut Down button can SIGTERM
 # us (which triggers the cleanup trap below, killing both server AND client).
@@ -68,16 +100,30 @@ echo "Starting React client (preferred :$WEB_PORT_PREF)..."
 cd "$DIR/client"
 VITE_LOG="$DIR/.vite.log"
 : > "$VITE_LOG"
+# Spawn vite without piping through tee so $! is the npm-exec PID itself
+# (a pipeline's $! is the LAST stage, which used to be tee — that made
+# CLIENT_PID useless for liveness checks). Redirect stdout+stderr directly
+# into the log file.
 KAYENTA_API_PORT="$API_PORT" KAYENTA_WEB_PORT="$WEB_PORT_PREF" \
-  npx vite --port "$WEB_PORT_PREF" 2>&1 | tee "$VITE_LOG" &
+  npx vite --port "$WEB_PORT_PREF" > "$VITE_LOG" 2>&1 &
 CLIENT_PID=$!
 
 # Vite prints `  ➜  Local:   http://localhost:NNNN/` once ready. Parse the
 # actual port from that line so the banner reflects reality even if Vite
-# bumped to a different port.
+# bumped. If vite dies before we see the line, or we hit our timeout with
+# no line, surface a clear error + the tail of the log instead of silently
+# pointing the user at a dead port.
 WEB_PORT=""
 WAIT=0
-while [ -z "$WEB_PORT" ] && [ $WAIT -lt 40 ]; do
+MAX_WAIT=40       # 0.5s × 40 = 20s
+while [ -z "$WEB_PORT" ] && [ $WAIT -lt $MAX_WAIT ]; do
+  if ! kill -0 "$CLIENT_PID" 2>/dev/null; then
+    echo "ERROR: Vite exited before becoming ready. Last 20 lines of log:" >&2
+    tail -n 20 "$VITE_LOG" >&2
+    kill "$SERVER_PID" 2>/dev/null || true
+    rm -f "$LAUNCHER_PID_FILE"
+    exit 1
+  fi
   WEB_PORT=$(grep -oE 'Local:[[:space:]]+http://localhost:[0-9]+' "$VITE_LOG" 2>/dev/null \
     | head -1 | grep -oE '[0-9]+$')
   if [ -z "$WEB_PORT" ]; then
@@ -85,7 +131,13 @@ while [ -z "$WEB_PORT" ] && [ $WAIT -lt 40 ]; do
     WAIT=$((WAIT + 1))
   fi
 done
-WEB_PORT="${WEB_PORT:-$WEB_PORT_PREF}"
+if [ -z "$WEB_PORT" ]; then
+  echo "ERROR: Vite did not become ready within 20s. Last 20 lines of log:" >&2
+  tail -n 20 "$VITE_LOG" >&2
+  kill "$CLIENT_PID" "$SERVER_PID" 2>/dev/null || true
+  rm -f "$LAUNCHER_PID_FILE"
+  exit 1
+fi
 if [ "$WEB_PORT" != "$WEB_PORT_PREF" ]; then
   echo "Note: web port $WEB_PORT_PREF was in use — web is on $WEB_PORT"
 fi
@@ -133,7 +185,7 @@ cleanup() {
   pkill -f "$DIR/client/node_modules/.bin/vite"                   2>/dev/null || true
   pkill -f "$DIR/client/node_modules/@esbuild/.*/bin/esbuild"     2>/dev/null || true
 
-  rm -f "$DIR/.vite.log" "$DIR/server/.port" "$LAUNCHER_PID_FILE"
+  rm -f "$DIR/.vite.log" "$DIR/server/.port" "$DIR/server/.api.pid" "$LAUNCHER_PID_FILE"
   exit
 }
 trap cleanup INT TERM

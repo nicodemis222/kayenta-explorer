@@ -146,6 +146,41 @@ async function loadFeatures() {
   return inMemoryFeatures;
 }
 
+/**
+ * Type-aware feature inference from a FUDS FEATURENAME. The DoD facility
+ * categories have very predictable structural footprints — an ammunition
+ * depot ALWAYS had reinforced storage, rail-served loading docks, and
+ * heavy industrial power. We emit those tags without requiring the
+ * description text to spell them out, so the UI's per-feature filter
+ * pills actually have something to grab onto for these sites.
+ *
+ * Returns an array of `feature:*` tags to add on top of the default
+ * underground+concrete+federal-surplus base set in toListing().
+ */
+function inferredFeatures(name = '') {
+  const n = name.toLowerCase();
+  const out = [];
+  // Heavy industrial DoD sites — rail/truck loading, 3-phase power, water.
+  if (/\b(ammunition (depot|plant|storage)|munitions plant|ordnance (works|depot|plant)|army depot|naval depot|supply depot|signal depot|air force plant|quartermaster depot)\b/.test(n)) {
+    out.push('feature:industrial', 'feature:loading-dock', 'feature:heavy-power', 'feature:water');
+  }
+  // Radar / electronic warfare sites — high-amperage feeders for the
+  // transmitter, but no loading docks.
+  if (/\b(radar (annex|site|station|bomb scoring)|early warning|sage|dew line|gap[- ]?filler|communication bunker|nike|titan|atlas|minuteman|missile (silo|site|base))\b/.test(n)) {
+    out.push('feature:heavy-power');
+  }
+  // Forts / bases / camps / air stations — wells & septic almost universal
+  // since they were remote installations.
+  if (/\b(fort\b|camp\b|naval (base|station|air station)|army (base|airfield)|air force base|reservation|airfield|aux(iliary)? field)\b/.test(n)) {
+    out.push('feature:water');
+  }
+  // Fuel/POL storage — heavy-power for pumps + water for fire suppression.
+  if (/\b(fuel (depot|storage|farm|terminal)|pol storage|tank farm)\b/.test(n)) {
+    out.push('feature:heavy-power', 'feature:water');
+  }
+  return out;
+}
+
 function toListing(feat) {
   const p = feat.props;
   const now = new Date().toISOString();
@@ -165,8 +200,12 @@ function toListing(feat) {
     'feature:underground',
     'feature:concrete',
     'feature:federal-surplus',
+    ...inferredFeatures(name),
     `feature:bunker-score:${score}`,
   ];
+  // De-dup defensively (inferredFeatures may overlap our base set).
+  const seen = new Set();
+  const dedupFeatures = features.filter(f => seen.has(f) ? false : (seen.add(f), true));
 
   const address = [name, city, county, state].filter(Boolean).join(', ');
   const fullDesc = [
@@ -194,7 +233,7 @@ function toListing(feat) {
     year_built: null,
     property_type: 'Former DoD site (FUDS)',
     status: 'Off-market (historical)',
-    amenities: JSON.stringify(features),
+    amenities: JSON.stringify(dedupFeatures),
     description: fullDesc,
     image_url: '',
     date_posted: '',

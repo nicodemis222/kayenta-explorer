@@ -668,6 +668,27 @@ button {
   border-color: var(--accent);
 }
 
+/* "(N)" inside a pill — the count of listings matching that feature in the
+   current polygon. Slightly dimmer than the label so it reads as metadata. */
+.feature-pill .pill-count {
+  opacity: 0.6;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.feature-pill.active .pill-count {
+  opacity: 0.85;
+}
+
+/* Zero-count pill — visually de-emphasized and non-clickable so users don't
+   waste a click on a filter that can't return anything in this area. */
+.feature-pill.empty {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.feature-pill.empty:hover {
+  color: var(--text-muted);
+}
+
 .feature-badges {
   margin-bottom: 8px;
 }

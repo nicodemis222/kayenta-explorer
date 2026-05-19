@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import MapView from '../components/MapView.jsx';
 import SearchSidebar from '../components/SearchSidebar.jsx';
 import ListingCard from '../components/ListingCard.jsx';
@@ -364,6 +364,20 @@ export default function ExploreView() {
     return null;
   }
 
+  // Count each feature pill's hits across the pre-pill result set so the UI
+  // can render "Industrial (38)" instead of bare labels. Counted over the
+  // full polygon-filtered listings — NOT over filteredListings — so the user
+  // sees what's actually available before any pill toggles narrow things.
+  const featureCounts = useMemo(() => {
+    const counts = {};
+    for (const f of FEATURES[mode] || []) counts[f.key] = 0;
+    for (const l of listings) {
+      const amen = Array.isArray(l.amenities) ? l.amenities : [];
+      for (const key of Object.keys(counts)) if (amen.includes(key)) counts[key]++;
+    }
+    return counts;
+  }, [listings, mode]);
+
   const filteredListings = listings
     .filter(l => {
       const amen = Array.isArray(l.amenities) ? l.amenities : [];
@@ -542,15 +556,23 @@ export default function ExploreView() {
               <h3>{activeSearch.name} — {filteredListings.length} of {listings.length} matches</h3>
               <div className="results-controls">
                 <div className="filter-bar" style={{ marginBottom: 0 }}>
-                  {(FEATURES[mode] || []).map(f => (
-                    <button
-                      key={f.key}
-                      className={`feature-pill ${featureFilters[f.key] ? 'active' : ''}`}
-                      onClick={() => setFeatureFilters(prev => ({ ...prev, [f.key]: !prev[f.key] }))}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
+                  {(FEATURES[mode] || []).map(f => {
+                    const count = featureCounts[f.key] ?? 0;
+                    const disabled = count === 0 && !featureFilters[f.key];
+                    return (
+                      <button
+                        key={f.key}
+                        className={`feature-pill ${featureFilters[f.key] ? 'active' : ''} ${disabled ? 'empty' : ''}`}
+                        onClick={() => setFeatureFilters(prev => ({ ...prev, [f.key]: !prev[f.key] }))}
+                        disabled={disabled}
+                        title={disabled
+                          ? `No listings in this area carry ${f.label.toLowerCase()}`
+                          : `${count} listing${count === 1 ? '' : 's'} match ${f.label.toLowerCase()}`}
+                      >
+                        {f.label} <span className="pill-count">({count})</span>
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="price-filter">
                   <input

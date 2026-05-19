@@ -74,6 +74,10 @@ function siloToListing(silo) {
       'feature:underground',
       'feature:concrete',
       'feature:heavy-power',
+      // Every Atlas/Titan/Minuteman site had on-site water (cooling for the
+      // launch control center HVAC and the silo dehumidification system),
+      // so the well/septic plumbing is universally present on these sites.
+      'feature:water',
       'feature:bunker-score:10',
     ]),
     description,

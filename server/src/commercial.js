@@ -100,11 +100,23 @@ export function detectBunkerFeatures(rawText, propertyType = '', opts = {}) {
   if (WATER_PATTERNS.test(text))       { features.push('feature:water');        score += 1; }
   if (CONCRETE_PATTERNS.test(text))    { features.push('feature:concrete');     score += 1; }
 
-  // Type-based weighting — even with no descriptive prose, "Industrial" or
-  // "Warehouse" types are stronger candidates than "Office" or "Retail".
+  // Type-based weighting + structural-inference tagging. Crexi/LandSearch
+  // cards have short descriptions that rarely mention every relevant trait,
+  // so when the *type* alone unambiguously implies a feature we emit the
+  // tag without requiring the prose to spell it out. Examples:
+  //   - Industrial / Warehouse / Flex / Self Storage are practically
+  //     guaranteed to be tilt-up concrete with loading docks and 3-phase
+  //     power (electrical for forklifts, compressors, conveyors).
+  //   - Industrial parcels typically sit on well/septic if they're
+  //     outside city limits, but we DON'T auto-tag water there because
+  //     municipal industrial parks have city water — too noisy.
   const t = propertyType.toLowerCase();
-  if (t === 'industrial' || t === 'warehouse' || t === 'flex' || t === 'self storage') {
-    if (!features.includes('feature:industrial')) features.push('feature:industrial');
+  const isIndustrialish = (t === 'industrial' || t === 'warehouse' || t === 'flex' || t === 'self storage');
+  if (isIndustrialish) {
+    if (!features.includes('feature:industrial'))   features.push('feature:industrial');
+    if (!features.includes('feature:concrete'))     features.push('feature:concrete');
+    if (!features.includes('feature:loading-dock')) features.push('feature:loading-dock');
+    if (!features.includes('feature:heavy-power'))  features.push('feature:heavy-power');
     score += 1;
   }
   if (t === 'special purpose') score += 1; // often unique facilities (data center, vault, etc.)

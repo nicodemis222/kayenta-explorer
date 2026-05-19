@@ -32,6 +32,9 @@ async function findFreePort(preferred, tries = Number(process.env.KAYENTA_PORT_S
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const portFile = path.join(__dirname, '..', '.port');
+// .api.pid lets the desktop launcher distinguish "we're already running"
+// from "some unrelated process is squatting on our port".
+const apiPidFile = path.join(__dirname, '..', '.api.pid');
 const app = express();
 
 app.use(cors());
@@ -129,7 +132,8 @@ async function gracefulShutdown(reason = 'manual') {
   // finish in time, so do them first here to be safe.
   try { await closeBrowser(); } catch (e) { console.error('  browser close:', e.message); }
   try { db.close(); }            catch (e) { console.error('  db close:', e.message); }
-  try { fs.unlinkSync(portFile); } catch {}
+  try { fs.unlinkSync(portFile);   } catch {}
+  try { fs.unlinkSync(apiPidFile); } catch {}
 
   const handed = signalLauncher();
   if (handed) {
@@ -159,7 +163,10 @@ app.get('*', (req, res) => {
 
 const PREFERRED_PORT = Number(SERVER_PORT) || 3001;
 
-process.on('exit', () => { try { fs.unlinkSync(portFile); } catch {} });
+process.on('exit', () => {
+  try { fs.unlinkSync(portFile);   } catch {}
+  try { fs.unlinkSync(apiPidFile); } catch {}
+});
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
@@ -195,6 +202,10 @@ if (port !== PREFERRED_PORT) {
 // Write the selected port AFTER bind succeeds so the client/Vite proxy
 // (which reads server/.port at startup) only ever sees a live port.
 fs.writeFileSync(portFile, String(port));
+// Pair it with our own pid so the desktop launcher can verify the listener
+// on .port is actually our API and not some unrelated process that happens
+// to be on the same port.
+fs.writeFileSync(apiPidFile, String(process.pid));
 
 {
   console.log(`\n  Kayenta Explorer API running on http://localhost:${port}`);
