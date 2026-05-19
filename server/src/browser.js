@@ -31,6 +31,16 @@ async function launchBrowser() {
   return browser;
 }
 
+export async function closeBrowser() {
+  if (!browserPromise) return;
+  try {
+    const browser = await browserPromise;
+    await browser.close();
+  } catch { /* already closed or never launched */ }
+  browserPromise = null;
+  warmedUp = false;
+}
+
 export function getBrowser() {
   if (launchFailed) return Promise.reject(launchFailed);
   if (!browserPromise) {

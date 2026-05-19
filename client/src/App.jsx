@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getStats, triggerScrape } from './api.js';
+import { getStats, triggerScrape, shutdownServer } from './api.js';
 import ExploreView from './tabs/ExploreView.jsx';
 
 function formatCountdown(ms) {
@@ -18,6 +18,7 @@ export default function App() {
   const [scraping, setScraping] = useState(false);
   const [countdown, setCountdown] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [shutdownState, setShutdownState] = useState(null); // null | 'confirm' | 'done'
 
   const fetchTimer = useCallback(async () => {
     try {
@@ -58,6 +59,19 @@ export default function App() {
     return () => clearInterval(sync);
   }, [fetchTimer]);
 
+  const handleShutdown = async () => {
+    if (shutdownState !== 'confirm') {
+      setShutdownState('confirm');
+      // Auto-cancel the confirm state after 4s
+      setTimeout(() => setShutdownState(s => (s === 'confirm' ? null : s)), 4000);
+      return;
+    }
+    try {
+      await shutdownServer();
+    } catch { /* connection drop after exit is expected */ }
+    setShutdownState('done');
+  };
+
   const handleScrape = async () => {
     setScraping(true);
     try {
@@ -96,11 +110,31 @@ export default function App() {
               {formatCountdown(countdown)}
             </span>
           )}
-          <button className="btn btn-primary" onClick={handleScrape} disabled={scraping}>
+          <button className="btn btn-primary" onClick={handleScrape} disabled={scraping || !!shutdownState}>
             {scraping ? 'Scraping...' : 'Refresh Data'}
+          </button>
+          <button
+            className="btn btn-shutdown"
+            onClick={handleShutdown}
+            disabled={shutdownState === 'done'}
+            title="Stop the server and release resources (Chromium, DB handle, port)"
+          >
+            {shutdownState === 'confirm' ? 'Click again to confirm'
+              : shutdownState === 'done' ? 'Server stopped'
+              : 'Shut Down'}
           </button>
         </div>
       </header>
+
+      {shutdownState === 'done' && (
+        <div className="shutdown-overlay">
+          <div className="shutdown-card">
+            <h2>Server stopped</h2>
+            <p>Chromium, the database, and the port have been released. You can close this tab.</p>
+            <p className="shutdown-hint">To restart: run <code>npm run dev</code> from the project root.</p>
+          </div>
+        </div>
+      )}
 
       <main className="main main-explore">
         <ExploreView key={refreshKey} />

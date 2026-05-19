@@ -154,6 +154,44 @@ button {
   cursor: not-allowed;
 }
 
+.btn-shutdown {
+  background: transparent;
+  border-color: #b34141;
+  color: #d96a6a;
+}
+.btn-shutdown:hover:not(:disabled) {
+  background: #b34141;
+  color: white;
+}
+
+.shutdown-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.shutdown-card {
+  background: var(--bg, #1a1a1a);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 32px 40px;
+  max-width: 440px;
+  text-align: center;
+  color: #ddd;
+}
+.shutdown-card h2 { margin: 0 0 12px; color: #f0f0f0; }
+.shutdown-card p  { margin: 8px 0; line-height: 1.5; }
+.shutdown-card code {
+  background: #2a2a2a;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.shutdown-hint { color: var(--text-muted, #888); font-size: 13px; }
+
 /* Refresh Timer */
 .refresh-timer {
   display: inline-flex;

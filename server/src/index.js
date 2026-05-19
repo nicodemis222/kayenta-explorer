@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 import routes from './routes.js';
 import { SERVER_PORT } from './config.js';
 import { runScrape } from './scraper.js';
+import { closeBrowser } from './browser.js';
+import db from './db.js';
 
 // Check if a TCP port is currently free.
 function isPortFree(port) {
@@ -29,6 +31,7 @@ async function findFreePort(preferred, tries = Number(process.env.KAYENTA_PORT_S
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const portFile = path.join(__dirname, '..', '.port');
 const app = express();
 
 app.use(cors());
@@ -88,6 +91,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// Graceful shutdown — closes Chromium, the SQLite handle, removes the port
+// file, and exits. Used by the UI "Shut Down" button to free resources cleanly.
+let shuttingDown = false;
+async function gracefulShutdown(reason = 'manual') {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n  Shutdown requested (${reason}) — cleaning up…`);
+  try { await closeBrowser(); } catch (e) { console.error('  browser close:', e.message); }
+  try { db.close(); }            catch (e) { console.error('  db close:', e.message); }
+  try { fs.unlinkSync(portFile); } catch {}
+  console.log('  Bye.');
+  // Give the response a tick to flush before the process dies.
+  setTimeout(() => process.exit(0), 100);
+}
+
+app.post('/api/shutdown', (req, res) => {
+  res.json({ ok: true, message: 'Server shutting down…' });
+  gracefulShutdown('api');
+});
+
 app.use(routes);
 
 // Serve static client build in production
@@ -101,10 +124,9 @@ app.get('*', (req, res) => {
 
 const PREFERRED_PORT = Number(SERVER_PORT) || 3001;
 
-const portFile = path.join(__dirname, '..', '.port');
 process.on('exit', () => { try { fs.unlinkSync(portFile); } catch {} });
-process.on('SIGINT', () => process.exit(0));
-process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // Try to bind, retrying on EADDRINUSE (in case a race between findFreePort
 // and listen() lets another process grab the port we picked).

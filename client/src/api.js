@@ -106,6 +106,12 @@ export async function getSearchListings(id) {
   return fetchJson(`/searches/${id}/listings`);
 }
 
+export async function shutdownServer() {
+  const res = await fetch(`${BASE}/shutdown`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Shutdown failed: ${res.status}`);
+  return res.json();
+}
+
 export async function triggerScrape() {
   const res = await fetch(`${BASE}/scrape`, { method: 'POST' });
   if (!res.ok) throw new Error(`Scrape failed: ${res.status}`);
