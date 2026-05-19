@@ -10,6 +10,9 @@ import { searchSilosCommercial } from './silos.js';
 // discovery to keep their results to genuine for-sale listings.
 import { searchOsmCommercial } from './overpass.js';
 import { searchMossyOakFarmland, searchMossyOakCabins } from './mossyoak.js';
+import { searchSurvivalRealtyCommercial } from './survivalrealty.js';
+import { searchSpecialFindsCommercial } from './specialfinds.js';
+import { searchLandsearchCommercial } from './landsearch.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -337,10 +340,17 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
     // OSM Overpass adds off-market discovery (industrial, mines, military
     // bunkers/silos tagged in OpenStreetMap). None are guaranteed for-sale.
     sourceResults = await Promise.all([
-      runSource('Crexi',          () => searchCrexiCommercial(polygon)),
-      runSource('USGS MRDS',      () => searchMinesCommercial(polygon)),
-      runSource('Silo Registry',  () => searchSilosCommercial(polygon)),
-      runSource('OSM',            () => searchOsmCommercial(polygon)),
+      runSource('Crexi',           () => searchCrexiCommercial(polygon)),
+      runSource('USGS MRDS',       () => searchMinesCommercial(polygon)),
+      runSource('Silo Registry',   () => searchSilosCommercial(polygon)),
+      runSource('OSM',             () => searchOsmCommercial(polygon)),
+      // Bunker-specialty sources: SurvivalRealty (prepper marketplace),
+      // SpecialFinds (earth-sheltered / underground homes), LandSearch
+      // (MLS aggregation filtered on "bunker" keyword — high-volume,
+      // significant overlap with Realtor expected, deduped downstream).
+      runSource('SurvivalRealty',  () => searchSurvivalRealtyCommercial(polygon)),
+      runSource('SpecialFinds',    () => searchSpecialFindsCommercial(polygon)),
+      runSource('LandSearch',      () => searchLandsearchCommercial(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });
