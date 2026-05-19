@@ -16,3 +16,6 @@ server/.port
 .vscode/
 .idea/
 .claude/
+# Large cached datasets (re-downloaded by scrapers as needed)
+server/data/*.geojson
+server/data/*.json

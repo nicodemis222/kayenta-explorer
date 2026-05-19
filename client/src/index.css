@@ -703,6 +703,22 @@ button {
 .bunker-badge.bunker-medium { background: #fde7c2; color: #7a4500; border-color: #c2785c; }
 .bunker-badge.bunker-low    { background: #ececec; color: #555;    border-color: #c8c8c8; }
 
+/* Federal-surplus badge — GSA auctions and USACE FUDS historical sites.
+   Patriotic navy on cream to make government provenance unmistakable
+   without dominating the card. Sits next to (after) the bunker-fit badge. */
+.federal-surplus-badge {
+  display: inline-block;
+  margin: 4px 0 0 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: #1f3a68;
+  color: #f4e9c1;
+  border: 1px solid #c79a2a;
+}
+
 /* Bunker-fit tier picker in commercial-mode results header */
 .bunker-filter {
   display: inline-flex;

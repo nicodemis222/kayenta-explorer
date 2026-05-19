@@ -51,6 +51,13 @@ export default function ListingCard({ listing }) {
       })
       .map(a => String(a).replace('feature:', ''))
   )];
+
+  // Federal-surplus badge: surfaces GSA realestatesales.gov auction listings
+  // and USACE FUDS historical sites distinctly from private commercial
+  // inventory. Removed from featureFlags so it doesn't double-render as a
+  // generic feature pill.
+  const isFederalSurplus = featureFlags.includes('federal-surplus');
+  const visibleFeatureFlags = featureFlags.filter(f => f !== 'federal-surplus');
   const amenityList = rawAmenities
     .filter(a => !String(a).startsWith('feature:'))
     .map(a => String(a).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
@@ -123,6 +130,20 @@ export default function ListingCard({ listing }) {
               Bunker fit: {bunkerScore}/10
             </span>
           )}
+          {isFederalSurplus && (
+            <span
+              className="federal-surplus-badge"
+              title={
+                source === 'gsa'
+                  ? 'GSA realestatesales.gov sealed-bid auction — federal surplus real property.'
+                  : source === 'fuds'
+                    ? 'USACE Formerly Used Defense Sites registry — historical DoD property, may or may not be on the market now.'
+                    : 'Federal surplus property.'
+              }
+            >
+              {source === 'gsa' ? 'GSA Auction' : source === 'fuds' ? 'FUDS (DoD historical)' : 'Federal Surplus'}
+            </span>
+          )}
           {price_change && (
             <span className={`price-change ${price_change.difference < 0 ? 'down' : 'up'}`}>
               {price_change.difference < 0 ? '\u2193' : '\u2191'}
@@ -177,9 +198,9 @@ export default function ListingCard({ listing }) {
           </p>
         )}
 
-        {featureFlags.length > 0 && (
+        {visibleFeatureFlags.length > 0 && (
           <div className="amenities feature-badges">
-            {featureFlags.map(f => (
+            {visibleFeatureFlags.map(f => (
               <span key={f} className="feature-badge">{featureLabels[f] || f}</span>
             ))}
           </div>

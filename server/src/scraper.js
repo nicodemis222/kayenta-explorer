@@ -14,6 +14,7 @@ import { searchSurvivalRealtyCommercial } from './survivalrealty.js';
 import { searchSpecialFindsCommercial } from './specialfinds.js';
 import { searchLandsearchCommercial } from './landsearch.js';
 import { searchGsaCommercial } from './gsa.js';
+import { searchFudsCommercial } from './fuds.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -356,6 +357,11 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       // The only live federal channel that still sells whole sites; small
       // inventory (~10-15 listings nationwide) but high-signal and unique.
       runSource('GSA',             () => searchGsaCommercial(polygon)),
+      // USACE FUDS — historical off-market overlay of every formerly-owned
+      // DoD property (~10k sites nationwide). Cached locally on disk; the
+      // property may or may not be for sale today, but every entry is a
+      // hardened-structure candidate worth surfacing.
+      runSource('USACE FUDS',      () => searchFudsCommercial(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });
