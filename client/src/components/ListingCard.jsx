@@ -21,13 +21,49 @@ function formatDate(dateStr) {
   }
 }
 
+/**
+ * Build a satellite preview URL for a coordinate using Esri's free public
+ * World Imagery export endpoint. Used as a fallback thumbnail for listings
+ * that have no street-view photo (mines, FUDS sites, silos, OSM features).
+ *
+ * boxMeters controls the zoom level — ~400m is a good default for a single
+ * mine adit / surface working, big enough to show topographic context
+ * without losing the feature itself in the frame.
+ */
+function satellitePreviewUrl(lat, lng, boxMeters = 400) {
+  const dLat = boxMeters / 111000;
+  const dLng = boxMeters / (111000 * Math.cos((lat * Math.PI) / 180));
+  const bbox = [lng - dLng, lat - dLat, lng + dLng, lat + dLat].join(',');
+  const params = new URLSearchParams({
+    bbox,
+    bboxSR: '4326',
+    imageSR: '3857',
+    size: '480,360',
+    format: 'jpg',
+    f: 'image',
+  });
+  return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?${params}`;
+}
+
 export default function ListingCard({ listing }) {
   const {
     source, type, address, price, sqft, bedrooms, bathrooms,
     lot_size, year_built, property_type, status, amenities,
     description, date_posted, date_first_seen, url, price_change,
-    image_url, parcel,
+    image_url, parcel, latitude, longitude,
   } = listing;
+  const [satFailed, setSatFailed] = useState(false);
+  // When the listing has no photo but does have coords, fall back to a
+  // satellite tile so we never render the empty "N/A" house placeholder.
+  // Common for USGS MRDS mines, FUDS sites, silo-registry entries, OSM
+  // features — every commercial-mode source that's a point of interest
+  // rather than a private-sale listing.
+  const previewUrl =
+    image_url
+      ? image_url
+      : (!satFailed && Number.isFinite(latitude) && Number.isFinite(longitude))
+        ? satellitePreviewUrl(latitude, longitude)
+        : null;
   const [descExpanded, setDescExpanded] = useState(false);
   // Mine sites and silos carry richer historical text — show more by default.
   const isCuratedSource = source === 'usgs-mrds' || source === 'silo-registry';
@@ -106,8 +142,17 @@ export default function ListingCard({ listing }) {
   return (
     <div className="listing-card">
       <div className="card-image">
-        {image_url ? (
-          <img src={image_url} alt={address || 'Property'} loading="lazy" />
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt={address || 'Property'}
+            loading="lazy"
+            onError={() => {
+              // If the satellite tile failed (rare, but Esri can 503 occasionally
+              // or refuse for a particular bbox), fall back to the placeholder.
+              if (previewUrl !== image_url) setSatFailed(true);
+            }}
+          />
         ) : (
           <div className="card-image-placeholder">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -115,6 +160,11 @@ export default function ListingCard({ listing }) {
               <polyline points="9 22 9 12 15 12 15 22" />
             </svg>
           </div>
+        )}
+        {previewUrl && previewUrl !== image_url && (
+          <span className="sat-badge" title="Satellite imagery — Esri World Imagery">
+            Satellite
+          </span>
         )}
         <span className={`source-tag ${source}`}>{source}</span>
       </div>
