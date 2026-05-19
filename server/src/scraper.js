@@ -13,6 +13,7 @@ import { searchMossyOakFarmland, searchMossyOakCabins } from './mossyoak.js';
 import { searchSurvivalRealtyCommercial } from './survivalrealty.js';
 import { searchSpecialFindsCommercial } from './specialfinds.js';
 import { searchLandsearchCommercial } from './landsearch.js';
+import { searchGsaCommercial } from './gsa.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
 import db from './db.js';
 
@@ -351,6 +352,10 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
       runSource('SurvivalRealty',  () => searchSurvivalRealtyCommercial(polygon)),
       runSource('SpecialFinds',    () => searchSpecialFindsCommercial(polygon)),
       runSource('LandSearch',      () => searchLandsearchCommercial(polygon)),
+      // GSA realestatesales.gov — federal surplus real-property auctions.
+      // The only live federal channel that still sells whole sites; small
+      // inventory (~10-15 listings nationwide) but high-signal and unique.
+      runSource('GSA',             () => searchGsaCommercial(polygon)),
     ]);
   } else {
     onProgress({ type: 'final', listings: [] });
