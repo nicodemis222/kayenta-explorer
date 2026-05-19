@@ -25,6 +25,13 @@ echo ""
 # Clear any stale .port file from a previous run so we don't read it by mistake.
 rm -f "$DIR/server/.port"
 
+# Write our own PID to .launcher.pid so the in-app Shut Down button can SIGTERM
+# us (which triggers the cleanup trap below, killing both server AND client).
+# Without this the Shut Down button can only kill the API process and leaves
+# the Vite dev server (and its esbuild helper) running.
+LAUNCHER_PID_FILE="$DIR/.launcher.pid"
+echo "$$" > "$LAUNCHER_PID_FILE"
+
 # Start API server. It will scan up from $PORT for the first free port and
 # write the actual bound port to server/.port once listening.
 echo "Starting API server (preferred :$API_PORT_PREF)..."
@@ -90,8 +97,43 @@ echo ""
 echo "Press Ctrl+C to stop both servers."
 
 cleanup() {
+  # Send SIGTERM to the direct children first.
   kill "$SERVER_PID" "$CLIENT_PID" 2>/dev/null || true
-  rm -f "$DIR/.vite.log" "$DIR/server/.port"
+  # Give the API server a moment to flush its own cleanup (Chromium close,
+  # DB close, .port unlink) before we hammer the rest of the tree.
+  sleep 0.5
+
+  # `npm exec vite` becomes the CLIENT_PID we know about, but the real
+  # `vite` and `esbuild` processes are grandchildren that don't always die
+  # when npm dies. Walk the tree under both children and kill every node.
+  kill_tree() {
+    local root=$1
+    [ -z "$root" ] && return
+    # Collect every descendant via pgrep -P chains. Pre-order so children
+    # are queued before we kill the parent (avoids reparenting to init).
+    local pids=("$root")
+    local i=0
+    while [ $i -lt ${#pids[@]} ]; do
+      local children
+      children=$(pgrep -P "${pids[$i]}" 2>/dev/null || true)
+      for c in $children; do pids+=("$c"); done
+      i=$((i + 1))
+    done
+    # Kill in reverse so leaves go first.
+    for ((j=${#pids[@]}-1; j>=0; j--)); do
+      kill "${pids[$j]}" 2>/dev/null || true
+    done
+  }
+  kill_tree "$SERVER_PID"
+  kill_tree "$CLIENT_PID"
+
+  # Final sweep: any vite or esbuild process still bound to this project's
+  # client/node_modules/.bin path. Belt-and-suspenders for the rare case
+  # where vite double-forks or reparents.
+  pkill -f "$DIR/client/node_modules/.bin/vite"                   2>/dev/null || true
+  pkill -f "$DIR/client/node_modules/@esbuild/.*/bin/esbuild"     2>/dev/null || true
+
+  rm -f "$DIR/.vite.log" "$DIR/server/.port" "$LAUNCHER_PID_FILE"
   exit
 }
 trap cleanup INT TERM

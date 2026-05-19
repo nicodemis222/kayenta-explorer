@@ -93,15 +93,50 @@ app.use((req, res, next) => {
 
 // Graceful shutdown — closes Chromium, the SQLite handle, removes the port
 // file, and exits. Used by the UI "Shut Down" button to free resources cleanly.
+//
+// If start.sh wrapped us (it writes its PID to .launcher.pid), we SIGTERM
+// the launcher and let its `cleanup` trap kill both us AND the Vite client
+// in one coordinated shutdown. Otherwise we just exit ourselves and leave
+// any sibling processes to whoever supervises them.
 let shuttingDown = false;
+const launcherPidFile = path.join(__dirname, '..', '..', '.launcher.pid');
+
+function signalLauncher() {
+  try {
+    if (!fs.existsSync(launcherPidFile)) return false;
+    const pid = parseInt(fs.readFileSync(launcherPidFile, 'utf8').trim(), 10);
+    if (!Number.isFinite(pid) || pid <= 1) return false;
+    // Verify the PID is actually alive before signaling (avoid SIGTERMing a
+    // recycled PID that now belongs to some unrelated process).
+    try { process.kill(pid, 0); } catch { return false; }
+    console.log(`  Found launcher pid ${pid}; sending SIGTERM so vite shuts down too`);
+    process.kill(pid, 'SIGTERM');
+    return true;
+  } catch (err) {
+    console.error('  signalLauncher:', err.message);
+    return false;
+  }
+}
+
 async function gracefulShutdown(reason = 'manual') {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n  Shutdown requested (${reason}) — cleaning up…`);
+
+  // If a launcher is supervising us, let it orchestrate the full teardown.
+  // We still do our own resource cleanup (closeBrowser/db) — the launcher's
+  // cleanup() trap will SIGTERM us as well, but our async closes might not
+  // finish in time, so do them first here to be safe.
   try { await closeBrowser(); } catch (e) { console.error('  browser close:', e.message); }
   try { db.close(); }            catch (e) { console.error('  db close:', e.message); }
   try { fs.unlinkSync(portFile); } catch {}
-  console.log('  Bye.');
+
+  const handed = signalLauncher();
+  if (handed) {
+    console.log('  Launcher will tear down vite and exit; bye.');
+  } else {
+    console.log('  No launcher pid file; exiting just the API.');
+  }
   // Give the response a tick to flush before the process dies.
   setTimeout(() => process.exit(0), 100);
 }
