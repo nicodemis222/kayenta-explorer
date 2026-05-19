@@ -80,6 +80,12 @@ export function extractPropertyType(text) {
  * default behaviour: pass `minScore: 1` to skip the score tag entirely
  * when nothing matched, so a farmland card only carries bunker tags when
  * there's actual signal (e.g. "underground storage" in the description).
+ *
+ * `opts.bonusScore` (default 0) adds a flat boost to the final score before
+ * clamping. Used by bunker-specialty sources (SurvivalRealty, SpecialFinds,
+ * LandSearch /bunker) whose entire inventory is pre-filtered for bunker
+ * relevance — we want those listings to outrank generic Crexi office/retail
+ * cards even when the per-card text alone doesn't carry strong signal.
  */
 export function detectBunkerFeatures(rawText, propertyType = '', opts = {}) {
   const text = `${rawText || ''} ${propertyType || ''}`.toLowerCase();
@@ -104,6 +110,10 @@ export function detectBunkerFeatures(rawText, propertyType = '', opts = {}) {
   if (t === 'special purpose') score += 1; // often unique facilities (data center, vault, etc.)
 
   if (BUNKER_NEGATIVE_PATTERNS.test(text)) score -= 2;
+
+  // Source-level bonus (caller supplies). Applied before clamping so a
+  // strong-signal listing on a bunker-specialty source can hit the ceiling.
+  score += opts.bonusScore || 0;
 
   // Clamp 0..10 and bucket it so we can filter on coarse tiers.
   score = Math.max(0, Math.min(10, score));

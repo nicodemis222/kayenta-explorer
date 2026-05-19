@@ -140,9 +140,10 @@ function toListing(card) {
   const blob = `${card.altText} ${card.sizeText} ${card.city}`;
   const features = [];
   if (BASEMENT_PATTERNS.test(blob)) features.push('feature:underground');
-  // LandSearch /bunker results pre-filter on bunker language, so most cards
-  // legitimately score a bunker-fit point. Emit without a minScore floor.
-  features.push(...detectBunkerFeatures(blob, '', { minScore: 0 }));
+  // LandSearch /bunker results pre-filter on bunker language. Apply +3
+  // source bonus so they outrank generic Crexi commercial cards in
+  // bunker-fit sort even when the card title alone is short on signal.
+  features.push(...detectBunkerFeatures(blob, '', { minScore: 0, bonusScore: 3 }));
 
   // Reconstruct a readable street address from the URL slug. The slug
   // format is "<street-with-dashes>-<city-with-dashes>-<state>-<zip>"; we

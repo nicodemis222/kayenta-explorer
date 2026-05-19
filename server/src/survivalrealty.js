@@ -100,10 +100,11 @@ function toListing(d) {
   const blob = `${d.title} ${d.description} ${d.address}`;
   const features = [];
   if (BASEMENT_PATTERNS.test(blob)) features.push('feature:underground');
-  // SurvivalRealty inventory is bunker-aligned by definition — always emit
-  // bunker-score (minScore: 0). Most listings score 4+ because of the
-  // underground/concrete/off-grid language in titles.
-  features.push(...detectBunkerFeatures(blob, '', { minScore: 0 }));
+  // SurvivalRealty inventory is bunker-aligned by definition — every URL
+  // comes from a curated /property-type/bunker/ or saferoom taxonomy. We
+  // apply a +3 source bonus so these outrank generic commercial cards
+  // (Crexi office/retail with no bunker signal) when sorted by bunker fit.
+  features.push(...detectBunkerFeatures(blob, '', { minScore: 0, bonusScore: 3 }));
 
   return {
     id: `survivalrealty_commercial_${d.slug}`,

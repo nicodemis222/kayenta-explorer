@@ -655,7 +655,7 @@ export default function ExploreView() {
                 trace an area on the map by clicking each corner — close the shape to find {
                   mode === 'farmland'   ? 'farmland (2,500+ sqft home, 5+ acres)' :
                   mode === 'cabin'      ? 'cabins (2,000+ sqft, 20+ acres)' :
-                  mode === 'commercial' ? 'commercial / industrial / underground properties (bunker-conversion candidates — sorted by bunker score)' :
+                  mode === 'commercial' ? 'bunker / underground / industrial / hardened-shelter candidates (sorted by bunker fit — sources are weighted: SurvivalRealty / SpecialFinds / LandSearch rank above generic commercial cards)' :
                                           'matching properties'
                 } inside it.
               </p>

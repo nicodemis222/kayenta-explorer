@@ -92,7 +92,7 @@ export default function App() {
       <header className="header">
         <div className="header-brand">
           <h1>Kayenta Explorer</h1>
-          <span>Farmland · Cabins · Commercial</span>
+          <span>Farmland · Cabins · Bunker</span>
         </div>
 
         <div className="header-actions">

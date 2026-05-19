@@ -47,9 +47,9 @@ export default function SearchSidebar({
         <button
           className={`mode-btn ${mode === 'commercial' ? 'active' : ''}`}
           onClick={() => onModeChange('commercial')}
-          title="Commercial / underground / industrial — bunker-conversion candidates"
+          title="Bunker — underground / industrial / hardened-shelter candidates from SurvivalRealty, SpecialFinds, LandSearch, Crexi, USGS MRDS, OSM, and our silo registry"
         >
-          Commercial
+          Bunker
         </button>
       </div>
 

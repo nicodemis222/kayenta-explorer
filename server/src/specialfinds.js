@@ -123,9 +123,9 @@ function toListing(d) {
   const blob = `${d.title} ${d.description}`;
   const features = [];
   if (BASEMENT_PATTERNS.test(blob)) features.push('feature:underground');
-  // Whole catalog is earth-sheltered/prepper-aligned — emit bunker score
-  // without a minScore floor so users can sort by it.
-  features.push(...detectBunkerFeatures(blob, '', { minScore: 0 }));
+  // Whole catalog is earth-sheltered/prepper-aligned — apply +3 source
+  // bonus so these rank above generic commercial cards in bunker-fit sort.
+  features.push(...detectBunkerFeatures(blob, '', { minScore: 0, bonusScore: 3 }));
 
   return {
     id: `specialfinds_commercial_${d.slug}`,
