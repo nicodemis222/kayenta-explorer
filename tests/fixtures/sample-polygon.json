@@ -1,0 +1,9 @@
+{
+  "_comment": "Rough SW Utah / Nevada / N AZ regional polygon. Covers the user's home area and several FUDS + USGS MRDS sites so source-plugin smoke tests have actual data to filter.",
+  "polygon": [
+    [36.5, -114.5],
+    [36.5, -109.5],
+    [42.0, -109.5],
+    [42.0, -114.5]
+  ]
+}
