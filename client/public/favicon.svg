@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    Kayenta Explorer — themed icon.
+
+    Reads as a southwestern red-rock landscape under a sunset sky with a
+    surveyor's polygon (the app's signature "draw an area" affordance)
+    laid over it. Holds up at 16px because the silhouette is a single
+    high-contrast mesa shape on a warm sky disc.
+  -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#1f1d2b"/>
+      <stop offset="55%" stop-color="#d4956e"/>
+      <stop offset="100%" stop-color="#c2785c"/>
+    </linearGradient>
+    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#8a3b27"/>
+      <stop offset="100%" stop-color="#5a2418"/>
+    </linearGradient>
+    <linearGradient id="rockBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#b35a3c"/>
+      <stop offset="100%" stop-color="#7a3520"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Sky disc -->
+  <circle cx="16" cy="16" r="15" fill="url(#sky)"/>
+
+  <!-- Distant butte (lighter rock) -->
+  <path d="M1 22 L1 19 L4 17 L4 15 L9 15 L9 18 L12 18 L12 21 L20 21 L20 22 Z"
+        fill="url(#rockBack)" opacity="0.85"/>
+
+  <!-- Foreground mesa (dark rock) -->
+  <path d="M1 26 L1 21 L5 19 L5 17 L7 17 L7 19 L13 19 L13 16 L19 16 L19 18 L23 18 L23 17 L27 17 L27 20 L31 22 L31 26 Z"
+        fill="url(#rock)"/>
+
+  <!-- Sun -->
+  <circle cx="22" cy="13" r="2.4" fill="#fde7c2"/>
+
+  <!-- Surveyor's polygon: a small white dashed quadrilateral hovering over
+       the mesa, echoing the in-app "draw an area" feature. -->
+  <polygon points="11,9 18,7 22,10 14,12"
+           fill="none"
+           stroke="#ffffff"
+           stroke-width="0.9"
+           stroke-linejoin="round"
+           stroke-dasharray="1.2 1"
+           opacity="0.95"/>
+  <!-- Vertex pips -->
+  <circle cx="11" cy="9"  r="0.9" fill="#ffffff"/>
+  <circle cx="18" cy="7"  r="0.9" fill="#ffffff"/>
+  <circle cx="22" cy="10" r="0.9" fill="#ffffff"/>
+  <circle cx="14" cy="12" r="0.9" fill="#ffffff"/>
+
+  <!-- Outline -->
+  <circle cx="16" cy="16" r="15" fill="none" stroke="#1f1d2b" stroke-width="1"/>
+</svg>
