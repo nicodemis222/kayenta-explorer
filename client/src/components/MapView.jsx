@@ -1,15 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { MapContainer, TileLayer, Polygon, Polyline, CircleMarker, Marker, Popup, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { tierFor, bunkerScoreOf, TIER_COLORS, NO_SCORE_COLOR, TIER_GLYPH } from '../lib/bunkerTier.js';
 
-// Fix Leaflet's default-marker assets (Vite ESM doesn't resolve them automatically)
+// Fix Leaflet's default-marker assets. Bundle them through Vite (import → URL)
+// instead of hot-linking unpkg so the app works offline and doesn't depend on
+// a third-party CDN at runtime.
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
 });
+
+// Build a Leaflet divIcon for a bunker-scored listing: a colored pin carrying
+// the tier glyph (H/M/L). The glyph is a NON-COLOR affordance so the tier is
+// legible to color-blind users and in grayscale (WCAG 1.4.1); the color is a
+// redundant cue. Focused markers render larger with the accent ring.
+const _iconCache = new Map();
+function tierIcon(tier, isFocused) {
+  const key = `${tier}|${isFocused ? 'f' : ''}`;
+  if (_iconCache.has(key)) return _iconCache.get(key);
+  const { base, stroke } = isFocused
+    ? { base: '#c2785c', stroke: '#7f3a26' }
+    : TIER_COLORS[tier];
+  const size = isFocused ? 28 : 22;
+  const icon = L.divIcon({
+    className: 'bunker-marker',
+    html: `<span class="bunker-pin" style="background:${base};border-color:${stroke}">${TIER_GLYPH[tier] || ''}</span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  });
+  _iconCache.set(key, icon);
+  return icon;
+}
 
 // Squared distance in pixel-space between two LatLngs, projected through the map.
 function pixelDistance(map, a, b) {
@@ -64,7 +93,7 @@ function FitToPolygon({ polygon }) {
 // highlighting on the matching marker to avoid wobbly map motion while
 // the user scrolls cards.)
 
-export default function MapView({
+function MapView({
   // active drawing state when user is creating a new search
   drawing,                // { phase: 'idle'|'drawing'|'done', vertices: [[lat,lng]] }
   onDrawingChange,        // (next) => void
@@ -216,7 +245,7 @@ export default function MapView({
         {/* Vertex dots while drawing */}
         {(drawing?.phase === 'drawing' || drawing?.phase === 'done') && vertices.map((v, i) => (
           <CircleMarker
-            key={i}
+            key={`${v[0]},${v[1]},${i}`}
             center={v}
             radius={i === 0 && drawing.phase === 'drawing' ? 7 : 5}
             pathOptions={{
@@ -236,61 +265,73 @@ export default function MapView({
           if (!l.latitude || !l.longitude) return null;
           const isFocused = focusedListingId === l.id;
 
-          // Pull the bunker score (if any) so we can tier-color the marker.
+          // Pull the bunker score (if any) so we can tier the marker.
           // Commercial listings always carry one; cross-source farmland/cabin
           // listings only carry one when bunker patterns actually matched.
-          const tag = Array.isArray(l.amenities)
-            ? l.amenities.find(a => String(a).startsWith('feature:bunker-score:'))
-            : null;
-          const score = tag ? Number(String(tag).split(':').pop()) : null;
-          let baseColor = '#3b82f6', strokeColor = '#1e3a8a'; // default blue
-          if (score != null) {
-            // Thresholds match server/src/commercial.js → bunkerTier().
-            // Crexi card text is short, so industrial-only listings score
-            // ~3 — we want those to read as "high" on the map.
-            if (score >= 3)      { baseColor = '#dc2626'; strokeColor = '#7f1d1d'; } // red high
-            else if (score >= 1) { baseColor = '#f59e0b'; strokeColor = '#92400e'; } // amber medium
-            else                 { baseColor = '#94a3b8'; strokeColor = '#475569'; } // slate low
-          }
+          const score = bunkerScoreOf(l.amenities);
+          const tier = tierFor(score);
+          const tierName = score == null ? 'unscored'
+            : tier === 'high' ? 'strong' : tier === 'medium' ? 'moderate' : 'weak';
+          const popupColor = (score == null ? NO_SCORE_COLOR : TIER_COLORS[tier]).base;
+          // Accessible name read by screen readers when the marker is focused
+          // (Marker keyboard:true makes pins tab-reachable; WCAG 2.1.1 / 4.1.2).
+          const ariaName = `${l.address || 'Listing'} — $${l.price?.toLocaleString() || 'N/A'}`
+            + (score != null ? `, bunker fit ${score} of 10 (${tierName})` : '');
 
-          return (
+          // Scored listings get a glyph pin (non-color tier cue, WCAG 1.4.1);
+          // unscored listings keep the plain blue dot.
+          const marker = score != null ? (
+            <Marker
+              key={l.id}
+              position={[l.latitude, l.longitude]}
+              icon={tierIcon(isFocused ? 'high' : tier, isFocused)}
+              keyboard
+              title={ariaName}
+              alt={ariaName}
+              eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
+            />
+          ) : (
             <CircleMarker
               key={l.id}
               center={[l.latitude, l.longitude]}
               radius={isFocused ? 10 : 6}
               pathOptions={{
-                color: isFocused ? '#c2785c' : strokeColor,
-                fillColor: isFocused ? '#c2785c' : baseColor,
+                color: isFocused ? '#c2785c' : NO_SCORE_COLOR.stroke,
+                fillColor: isFocused ? '#c2785c' : NO_SCORE_COLOR.base,
                 fillOpacity: 1,
                 weight: 2,
               }}
               eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
-            >
-              <Popup>
-                <div style={{ fontSize: 13 }}>
-                  <strong>${l.price?.toLocaleString() || 'N/A'}</strong>
-                  {score != null && (
-                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: baseColor }}>
-                      · Bunker {score}/10
-                    </span>
-                  )}<br />
-                  {l.address}<br />
-                  {l.sqft?.toLocaleString() || '—'} sqft · {l.lot_size || '—'}<br />
-                  {l.url && <a href={l.url} target="_blank" rel="noopener noreferrer">View listing</a>}
-                </div>
-              </Popup>
-            </CircleMarker>
+            />
           );
+
+          return React.cloneElement(marker, {}, (
+            <Popup>
+              <div style={{ fontSize: 13 }}>
+                <strong>${l.price?.toLocaleString() || 'N/A'}</strong>
+                {score != null && (
+                  <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: popupColor }}>
+                    · Bunker {score}/10 ({TIER_GLYPH[tier]})
+                  </span>
+                )}<br />
+                {l.address}<br />
+                {l.sqft?.toLocaleString() || '—'} sqft · {l.lot_size || '—'}<br />
+                {l.url && <a href={l.url} target="_blank" rel="noopener noreferrer">View listing</a>}
+              </div>
+            </Popup>
+          ));
         })}
       </MapContainer>
 
+      {/* Drawing-state hints double as an aria-live region so screen-reader
+          users hear vertex-count / phase transitions (WCAG 4.1.3). */}
       {drawing?.phase === 'idle-ready' && (
-        <div className="map-hint">
+        <div className="map-hint" role="status" aria-live="polite" aria-atomic="true">
           Click on the map to start drawing. Click each corner of your area; click the first point (or double-click) to finish.
         </div>
       )}
       {drawing?.phase === 'drawing' && (
-        <div className="map-hint">
+        <div className="map-hint" role="status" aria-live="polite" aria-atomic="true">
           {vertices.length < 3
             ? `${vertices.length} point${vertices.length === 1 ? '' : 's'} placed — add at least ${3 - vertices.length} more.`
             : `${vertices.length} points — click the first point (highlighted) or double-click to finish.`}
@@ -299,3 +340,8 @@ export default function MapView({
     </div>
   );
 }
+
+// Memoized: MapView renders dozens-to-hundreds of markers, so it shouldn't
+// re-render on unrelated parent state (mobile drawer toggle, price-input
+// keystrokes). Parent passes stable useCallback handlers so this is effective.
+export default React.memo(MapView);

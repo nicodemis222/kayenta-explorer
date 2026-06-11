@@ -119,6 +119,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_listings_price ON listings(price);
   CREATE INDEX IF NOT EXISTS idx_price_history_listing ON price_history(listing_id);
   CREATE INDEX IF NOT EXISTS idx_price_history_date ON price_history(recorded_at);
+  -- The hot query is the per-search "type + bounded geo" scan. A composite
+  -- index serves it directly; standalone lat/lng indexes (added below in an
+  -- earlier migration) can't be combined for a 2-D range and are dropped.
+  CREATE INDEX IF NOT EXISTS idx_listings_type_geo ON listings(type, latitude, longitude);
+  CREATE INDEX IF NOT EXISTS idx_scrape_log_started ON scrape_log(started_at);
 `);
 
 ensureColumn('listings', 'latitude', 'REAL');
@@ -129,9 +134,20 @@ ensureColumn('searches', 'max_house_sqft', 'INTEGER');
 ensureColumn('searches', 'min_lot_acres', 'REAL');
 ensureColumn('searches', 'max_lot_acres', 'REAL');
 
+// Replaced by the composite idx_listings_type_geo above. Drop the standalone
+// single-column geo indexes (near-useless for 2-D range scans, just write
+// overhead). IF EXISTS makes this idempotent on fresh DBs.
 db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_listings_lat ON listings(latitude);
-  CREATE INDEX IF NOT EXISTS idx_listings_lng ON listings(longitude);
+  DROP INDEX IF EXISTS idx_listings_lat;
+  DROP INDEX IF EXISTS idx_listings_lng;
 `);
+
+// The exact set of writable columns on `listings`, derived from the live
+// schema. The scraper upsert path uses this as an allowlist so a stray /
+// attacker-influenced object key from a scraped source can never reach a SQL
+// identifier position (defense-in-depth — keys are server-built today).
+export const LISTING_COLUMNS = new Set(
+  db.prepare('PRAGMA table_info(listings)').all().map(c => c.name)
+);
 
 export default db;

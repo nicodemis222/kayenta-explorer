@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getStats, triggerScrape, shutdownServer } from './api.js';
 import ExploreView from './tabs/ExploreView.jsx';
 
@@ -19,6 +19,9 @@ export default function App() {
   const [countdown, setCountdown] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [shutdownState, setShutdownState] = useState(null); // null | 'confirm' | 'done'
+  // Pending "re-sync after auto-refresh" timer, so a manual scrape can cancel
+  // it and we don't double-remount ExploreView (which would nuke a live stream).
+  const autoResyncRef = useRef(null);
 
   const fetchTimer = useCallback(async () => {
     try {
@@ -39,12 +42,17 @@ export default function App() {
       setCountdown(prev => {
         if (prev === null) return null;
         if (prev <= 0) {
-          // Auto-refresh happened — re-sync after delay
-          setTimeout(() => {
-            fetchTimer();
-            getStats().then(setStats).catch(console.error);
-            setRefreshKey(k => k + 1);
-          }, 8000);
+          // Auto-refresh happened — re-sync after a delay. Guard against
+          // stacking multiple deferred re-syncs (and let a manual scrape
+          // cancel this one) by tracking the timer in a ref.
+          if (!autoResyncRef.current) {
+            autoResyncRef.current = setTimeout(() => {
+              autoResyncRef.current = null;
+              fetchTimer();
+              getStats().then(setStats).catch(console.error);
+              setRefreshKey(k => k + 1);
+            }, 8000);
+          }
           return 0;
         }
         return prev - 1000;
@@ -52,6 +60,11 @@ export default function App() {
     }, 1000);
     return () => clearInterval(interval);
   }, [fetchTimer]);
+
+  // Clear the deferred auto-resync timer on unmount.
+  useEffect(() => () => {
+    if (autoResyncRef.current) clearTimeout(autoResyncRef.current);
+  }, []);
 
   // Re-sync with server every 5 min (drift correction)
   useEffect(() => {
@@ -73,6 +86,9 @@ export default function App() {
   };
 
   const handleScrape = async () => {
+    // Cancel any pending auto-resync so it can't remount ExploreView a second
+    // time right after our manual refresh.
+    if (autoResyncRef.current) { clearTimeout(autoResyncRef.current); autoResyncRef.current = null; }
     setScraping(true);
     try {
       await triggerScrape();

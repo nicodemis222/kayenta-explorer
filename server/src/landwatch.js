@@ -24,50 +24,12 @@
  * The browser process itself stays alive across scrapes (see browser.js).
  */
 
-import { CITIES, polygonBbox, pointInPolygon } from './cities.js';
+import { pointInPolygon, findCity } from './cities.js';
+import { STATE_NAME_TO_SLUG, statesIntersecting } from './geo-states.js';
 import { newStealthContext, warmup } from './browser.js';
-import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
+import { detectFarmFeatures } from './commercial.js';
 
-const STATE_NAME_TO_SLUG = {
-  ut: 'utah', nv: 'nevada', az: 'arizona', co: 'colorado', nm: 'new-mexico',
-  id: 'idaho', wy: 'wyoming',
-};
-
-// Same regional state bboxes as unitedcountry.js
-const STATE_BBOX = {
-  ut: { minLat: 36.99, maxLat: 42.00, minLng: -114.05, maxLng: -109.04 },
-  nv: { minLat: 35.00, maxLat: 42.00, minLng: -120.01, maxLng: -114.04 },
-  az: { minLat: 31.33, maxLat: 37.00, minLng: -114.81, maxLng: -109.04 },
-  co: { minLat: 36.99, maxLat: 41.00, minLng: -109.06, maxLng: -102.04 },
-  nm: { minLat: 31.33, maxLat: 37.00, minLng: -109.06, maxLng: -103.00 },
-};
-function bboxOverlap(a, b) {
-  return !(a.maxLat < b.minLat || b.maxLat < a.minLat ||
-           a.maxLng < b.minLng || b.maxLng < a.minLng);
-}
-function statesIntersecting(polygon) {
-  const bbox = polygonBbox(polygon);
-  if (!bbox) return Object.keys(STATE_BBOX);
-  return Object.entries(STATE_BBOX)
-    .filter(([_, sb]) => bboxOverlap(bbox, sb))
-    .map(([code]) => code);
-}
-
-// City name+state → {lat,lng}. Built once from CITIES.
-const CITY_INDEX = (() => {
-  const m = new Map();
-  for (const c of CITIES) {
-    const [city, state] = c.name.split(',').map(s => s.trim());
-    if (!city || !state) continue;
-    m.set(`${city.toLowerCase()}|${state.toLowerCase()}`, { lat: c.lat, lng: c.lng });
-  }
-  return m;
-})();
-
-function lookupCoords(locality, region) {
-  if (!locality || !region) return null;
-  return CITY_INDEX.get(`${locality.toLowerCase()}|${region.toLowerCase()}`) || null;
-}
+const lookupCoords = findCity; // (locality, region) → { lat, lng } | null
 
 const MAX_PAGES_PER_STATE = 5;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -148,15 +110,8 @@ function parseLandwatchItem(entry, listingType) {
   const now = new Date().toISOString();
   const desc = item.description || '';
 
-  // Feature detection on the description
-  const features = [];
-  if (/\b(creek|stream|spring[s]?|pond|river|water rights?|irrigation|well|share[s]? of water|year[- ]?round water)\b/i.test(desc)) features.push('feature:water');
-  if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(desc)) features.push('feature:solar');
-  if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(desc)) features.push('feature:outbuilding');
-  if (/\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(desc)) features.push('feature:storage');
-  if (BASEMENT_PATTERNS.test(desc)) features.push('feature:underground');
-  // Bunker-conversion bonus features (only attach when something matched).
-  features.push(...detectBunkerFeatures(desc, '', { minScore: 1 }));
+  // Feature detection on the description (shared canonical bank).
+  const features = detectFarmFeatures(desc);
 
   const street = addr.streetAddress || '';
   const fullAddress = [street, locality, region, addr.postalCode].filter(Boolean).join(', ');

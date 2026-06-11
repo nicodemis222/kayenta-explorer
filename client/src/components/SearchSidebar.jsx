@@ -31,20 +31,26 @@ export default function SearchSidebar({
         <h2>Searches</h2>
       </div>
 
-      <div className="sidebar-mode-toggle">
+      <div className="sidebar-mode-toggle" role="radiogroup" aria-label="Search mode">
         <button
+          role="radio"
+          aria-checked={mode === 'farmland'}
           className={`mode-btn ${mode === 'farmland' ? 'active' : ''}`}
           onClick={() => onModeChange('farmland')}
         >
           Farmland
         </button>
         <button
+          role="radio"
+          aria-checked={mode === 'cabin'}
           className={`mode-btn ${mode === 'cabin' ? 'active' : ''}`}
           onClick={() => onModeChange('cabin')}
         >
           Cabin
         </button>
         <button
+          role="radio"
+          aria-checked={mode === 'commercial'}
           className={`mode-btn ${mode === 'commercial' ? 'active' : ''}`}
           onClick={() => onModeChange('commercial')}
           title="Bunker — underground / industrial / hardened-shelter candidates from SurvivalRealty, SpecialFinds, LandSearch, Crexi, USGS MRDS, OSM, and our silo registry"
@@ -67,7 +73,14 @@ export default function SearchSidebar({
             <div
               key={s.id}
               className={`sidebar-item ${activeId === s.id ? 'active' : ''}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={activeId === s.id}
+              aria-label={`Open saved search ${s.name}`}
               onClick={() => onSelect(s)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(s); }
+              }}
             >
               <div className="sidebar-item-row">
                 <span className="sidebar-item-name">{s.name}</span>

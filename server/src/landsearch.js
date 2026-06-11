@@ -24,38 +24,10 @@
  * same area within that window skip the browser entirely.
  */
 
-import { pointInPolygon, polygonBbox } from './cities.js';
+import { pointInPolygon } from './cities.js';
+import { STATE_NAME_TO_SLUG, statesIntersecting } from './geo-states.js';
 import { newStealthContext, warmup } from './browser.js';
 import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
-
-// Same regional state bboxes as landwatch.js. Western US focus matches the
-// app's primary user; extend as coverage grows.
-const STATE_BBOX = {
-  ut: { minLat: 36.99, maxLat: 42.00, minLng: -114.05, maxLng: -109.04 },
-  nv: { minLat: 35.00, maxLat: 42.00, minLng: -120.01, maxLng: -114.04 },
-  az: { minLat: 31.33, maxLat: 37.00, minLng: -114.81, maxLng: -109.04 },
-  co: { minLat: 36.99, maxLat: 41.00, minLng: -109.06, maxLng: -102.04 },
-  nm: { minLat: 31.33, maxLat: 37.00, minLng: -109.06, maxLng: -103.00 },
-  id: { minLat: 41.99, maxLat: 49.00, minLng: -117.24, maxLng: -111.04 },
-  wy: { minLat: 40.99, maxLat: 45.01, minLng: -111.06, maxLng: -104.05 },
-};
-
-const STATE_NAME_TO_SLUG = {
-  ut: 'utah', nv: 'nevada', az: 'arizona', co: 'colorado', nm: 'new-mexico',
-  id: 'idaho', wy: 'wyoming',
-};
-
-function bboxOverlap(a, b) {
-  return !(a.maxLat < b.minLat || b.maxLat < a.minLat ||
-           a.maxLng < b.minLng || b.maxLng < a.minLng);
-}
-function statesIntersecting(polygon) {
-  const bbox = polygonBbox(polygon);
-  if (!bbox) return Object.keys(STATE_BBOX);
-  return Object.entries(STATE_BBOX)
-    .filter(([, sb]) => bboxOverlap(bbox, sb))
-    .map(([code]) => code);
-}
 
 // Per-URL in-process cache. 30 min TTL.
 const cache = new Map();

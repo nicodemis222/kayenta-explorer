@@ -12,7 +12,7 @@
  */
 
 import { pointInPolygon } from './cities.js';
-import { BASEMENT_PATTERNS } from './commercial.js';
+import { detectFarmFeatures } from './commercial.js';
 
 const ROOT = 'https://www.mossyoakproperties.com/land-for-sale/';
 const MAX_PAGES = 10;
@@ -91,13 +91,9 @@ function parseCards(html) {
 function cardToListing(card, listingType) {
   const now = new Date().toISOString();
   const lotText = card.acres ? `${card.acres.toLocaleString()} acres` : '';
-  const text = `${card.title} ${card.raw_loc}`;
-  const features = [];
-  if (/\b(creek|stream|spring[s]?|pond|river|water rights?|irrigation|well|share[s]? of water)\b/i.test(text)) features.push('feature:water');
-  if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(text)) features.push('feature:solar');
-  if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(text)) features.push('feature:outbuilding');
-  if (/\b(storage|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(text)) features.push('feature:storage');
-  if (BASEMENT_PATTERNS.test(text)) features.push('feature:underground');
+  // Shared canonical feature detection (Mossy Oak's old inline copies had
+  // drifted — dropped "year-round water" and the "shed" storage token).
+  const features = detectFarmFeatures(`${card.title} ${card.raw_loc}`);
 
   return {
     id: `mossyoak_${listingType}_${card.id}`,

@@ -3,7 +3,7 @@
  * No headless browser needed — just HTTP POST requests.
  */
 
-import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
+import { detectFarmFeatures, CABIN_PATTERNS } from './commercial.js';
 
 const API_URL = 'https://www.realtor.com/frontdoor/graphql';
 
@@ -158,26 +158,10 @@ const REGIONAL_CITIES = [
 
 const SQFT_PER_ACRE = 43560;
 
-const WATER_PATTERNS = /\b(creek|stream|spring[s]?|pond|river|water rights?|irrigation|well|share[s]? of water|year[- ]?round water)\b/i;
-const SOLAR_PATTERNS = /\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i;
-const OUTBUILDING_PATTERNS = /\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i;
-const STORAGE_PATTERNS = /\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i;
-const CABIN_PATTERNS = /\b(cabin|log home|a[- ]?frame|mountain retreat)\b/i;
-
 function detectFeatures(item) {
   const desc = item.description?.text || '';
   const tags = Array.isArray(item.tags) ? item.tags.join(' ') : '';
-  const blob = `${desc} ${tags}`;
-  const features = [];
-  if (WATER_PATTERNS.test(blob)) features.push('feature:water');
-  if (SOLAR_PATTERNS.test(blob)) features.push('feature:solar');
-  if (OUTBUILDING_PATTERNS.test(blob)) features.push('feature:outbuilding');
-  if (STORAGE_PATTERNS.test(blob)) features.push('feature:storage');
-  if (BASEMENT_PATTERNS.test(blob)) features.push('feature:underground');
-  // Bunker-conversion bonus: only emit when the listing text actually
-  // mentions something underground / industrial / hardened.
-  features.push(...detectBunkerFeatures(blob, '', { minScore: 1 }));
-  return features;
+  return detectFarmFeatures(`${desc} ${tags}`);
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

@@ -17,7 +17,7 @@
  */
 
 import { pointInPolygon } from './cities.js';
-import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
+import { detectFarmFeatures } from './commercial.js';
 
 const LIST_URL = 'https://www.haydenoutdoors.com/land-for-sale/';
 
@@ -88,20 +88,8 @@ function parseHaydenItem(entry, listingType) {
   const image = Array.isArray(item.image) ? item.image[0] : item.image;
   const now = new Date().toISOString();
 
-  // Feature detection from the (short) description Hayden embeds
-  const text = `${name} ${description}`;
-  const features = [];
-  if (/\b(creek|stream|spring[s]?|pond|river|water rights?|irrigation|well|share[s]? of water|year[- ]?round water)\b/i.test(text)) features.push('feature:water');
-  if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(text)) features.push('feature:solar');
-  if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(text)) features.push('feature:outbuilding');
-  if (/\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(text)) features.push('feature:storage');
-  if (BASEMENT_PATTERNS.test(text)) features.push('feature:underground');
-
-  // Layer in commercial / bunker-conversion features when the description
-  // actually mentions any (e.g. "concrete bunker", "underground storage").
-  // `minScore: 1` suppresses the whole bundle when nothing matched, so
-  // routine farmland listings stay clean.
-  features.push(...detectBunkerFeatures(text, '', { minScore: 1 }));
+  // Feature detection from the (short) description Hayden embeds.
+  const features = detectFarmFeatures(`${name} ${description}`);
 
   return {
     id: `hayden_${listingType}_${slug}`,

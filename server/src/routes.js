@@ -17,36 +17,34 @@ router.get('/api/listings', (req, res) => {
     maxPrice,
     minSqft,
     minBeds,
+    limit,
+    offset,
   } = req.query;
+
+  // Parse numeric filters with Number() (no octal/hex surprises from parseInt
+  // without a radix); ignore non-finite / negative values.
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 
   let sql = 'SELECT * FROM listings WHERE type = ?';
   const params = [type];
 
-  if (source) {
-    sql += ' AND source = ?';
-    params.push(source);
-  }
-  if (minPrice) {
-    sql += ' AND price >= ?';
-    params.push(parseInt(minPrice));
-  }
-  if (maxPrice) {
-    sql += ' AND price <= ?';
-    params.push(parseInt(maxPrice));
-  }
-  if (minSqft) {
-    sql += ' AND sqft >= ?';
-    params.push(parseInt(minSqft));
-  }
-  if (minBeds) {
-    sql += ' AND bedrooms >= ?';
-    params.push(parseInt(minBeds));
-  }
+  if (source) { sql += ' AND source = ?'; params.push(source); }
+  if (num(minPrice) != null) { sql += ' AND price >= ?'; params.push(num(minPrice)); }
+  if (num(maxPrice) != null) { sql += ' AND price <= ?'; params.push(num(maxPrice)); }
+  if (num(minSqft) != null)  { sql += ' AND sqft >= ?';  params.push(num(minSqft)); }
+  if (num(minBeds) != null)  { sql += ' AND bedrooms >= ?'; params.push(num(minBeds)); }
 
   const validSorts = ['price', 'sqft', 'bedrooms', 'date_posted', 'date_first_seen'];
   const sortCol = validSorts.includes(sort) ? sort : 'price';
   const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
   sql += ` ORDER BY ${sortCol} ${sortOrder}`;
+
+  // Default page size bounds the response + the per-row price-history lookups
+  // below. Caller can page with ?limit&offset.
+  const lim = Math.min(Math.max(num(limit) ?? 500, 1), 2000);
+  const off = Math.max(num(offset) ?? 0, 0);
+  sql += ' LIMIT ? OFFSET ?';
+  params.push(lim, off);
 
   const listings = db.prepare(sql).all(...params);
 
@@ -71,7 +69,7 @@ router.get('/api/listings', (req, res) => {
         original: first,
         current: last,
         difference: last - first,
-        percent: ((last - first) / first * 100).toFixed(1),
+        percent: first > 0 ? ((last - first) / first * 100).toFixed(1) : null,
       };
     }
   }
@@ -122,7 +120,7 @@ router.get('/api/price-changes', (req, res) => {
         original: first,
         current: last,
         difference: last - first,
-        percent: ((last - first) / first * 100).toFixed(1),
+        percent: first > 0 ? ((last - first) / first * 100).toFixed(1) : null,
       },
     };
   });
@@ -173,6 +171,36 @@ router.get('/api/scrape-log', (req, res) => {
 
 // ── Saved searches ──
 
+const VALID_MODES = new Set(['farmland', 'cabin', 'commercial']);
+const MAX_POLYGON_VERTICES = 2000; // bounds JSON-parse + point-in-polygon cost
+
+// Validate a create-search payload. Returns an error string, or null if valid.
+// Rejects non-finite / out-of-range vertices (latent SSRF-amplification + DoS)
+// and oversized polygons.
+function validateSearchInput({ name, mode, polygon }) {
+  if (!name || typeof name !== 'string' || !name.trim()) return 'name is required';
+  if (!mode || !VALID_MODES.has(mode)) return 'mode must be farmland, cabin, or commercial';
+  if (!Array.isArray(polygon) || polygon.length < 3) return 'polygon (>=3 vertices) required';
+  if (polygon.length > MAX_POLYGON_VERTICES) return `polygon too large (max ${MAX_POLYGON_VERTICES} vertices)`;
+  for (const v of polygon) {
+    if (!Array.isArray(v) || v.length < 2) return 'each polygon vertex must be [lat, lng]';
+    const [lat, lng] = v;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 'polygon vertices must be finite numbers';
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return 'polygon vertex out of range';
+  }
+  return null;
+}
+
+// Derive the stored geometry (centroid + radius) from a validated polygon.
+function deriveSearchGeometry(polygon) {
+  const centroid = polygonCentroid(polygon);
+  const bbox = polygonBbox(polygon);
+  const halfLat = (bbox.maxLat - bbox.minLat) / 2;
+  const halfLng = (bbox.maxLng - bbox.minLng) / 2;
+  const radiusMi = Math.max(halfLat * 69, halfLng * 54.6);
+  return { centroid, radiusMi };
+}
+
 function expandSearch(row) {
   // Parse polygon JSON for clients.
   let polygon = null;
@@ -192,18 +220,10 @@ router.get('/api/searches', (req, res) => {
 // streaming progress. (Sync run is still supported via POST /api/searches/:id/run.)
 router.post('/api/searches', async (req, res) => {
   const { name, mode, polygon, min_house_sqft, max_house_sqft, min_lot_acres, max_lot_acres } = req.body || {};
-  if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
-    return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
-  }
-  if (mode !== 'farmland' && mode !== 'cabin' && mode !== 'commercial') {
-    return res.status(400).json({ error: 'mode must be farmland, cabin, or commercial' });
-  }
+  const err = validateSearchInput({ name, mode, polygon });
+  if (err) return res.status(400).json({ error: err });
 
-  const centroid = polygonCentroid(polygon);
-  const bbox = polygonBbox(polygon);
-  const halfLat = (bbox.maxLat - bbox.minLat) / 2;
-  const halfLng = (bbox.maxLng - bbox.minLng) / 2;
-  const radiusMi = Math.max(halfLat * 69, halfLng * 54.6);
+  const { centroid, radiusMi } = deriveSearchGeometry(polygon);
 
   const now = new Date().toISOString();
   const info = db.prepare(`
@@ -221,11 +241,18 @@ router.post('/api/searches', async (req, res) => {
   res.json({ search: expandSearch(row) });
 });
 
-// Helper: write a server-sent-event frame to the response.
+// Helper: write a server-sent-event frame to the response. No-ops once the
+// socket is gone so we don't throw / waste JSON on a disconnected client.
 function sse(res, event, data) {
+  if (res.writableEnded || res.destroyed) return;
   res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
+
+// In-flight run-lock: a saved search may have at most one active stream run.
+// Stops a client (or an attacker hammering the endpoint) from stacking N
+// concurrent multi-source Playwright scrapes and exhausting Chromium / RAM.
+const runningSearches = new Set();
 
 // POST /api/searches/:id/run/stream — run the scrape for a saved search and
 // stream progress + partial listings to the client via Server-Sent Events.
@@ -234,15 +261,26 @@ router.post('/api/searches/:id/run/stream', async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Search not found' });
   if (!row.polygon) return res.status(400).json({ error: 'Search has no polygon' });
 
+  const lockKey = String(row.id);
+  if (runningSearches.has(lockKey)) {
+    return res.status(409).json({ error: 'A run for this search is already in progress' });
+  }
+  runningSearches.add(lockKey);
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if reverse-proxied
   res.flushHeaders?.();
 
+  // Detect client disconnect (tab closed / navigated away) so we stop writing
+  // to a dead socket and skip the trailing DB write.
+  let aborted = false;
+  req.on('close', () => { aborted = true; });
+
   try {
     const polygon = JSON.parse(row.polygon);
-    const onProgress = (evt) => sse(res, evt.type, evt);
+    const onProgress = (evt) => { if (!aborted) sse(res, evt.type, evt); };
     sse(res, 'start', { search: expandSearch(row) });
 
     const result = await runScrapeForArea({
@@ -255,15 +293,18 @@ router.post('/api/searches/:id/run/stream', async (req, res) => {
       onProgress,
     });
 
-    db.prepare('UPDATE searches SET last_run_at = ?, result_count = ? WHERE id = ?')
-      .run(new Date().toISOString(), result.total_found || 0, row.id);
-
-    sse(res, 'done', result);
+    if (!aborted) {
+      db.prepare('UPDATE searches SET last_run_at = ?, result_count = ? WHERE id = ?')
+        .run(new Date().toISOString(), result.total_found || 0, row.id);
+      sse(res, 'done', result);
+    }
     res.end();
   } catch (err) {
     console.error('Stream scrape error:', err);
     sse(res, 'error', { message: err.message });
     res.end();
+  } finally {
+    runningSearches.delete(lockKey);
   }
 });
 
@@ -272,18 +313,10 @@ router.post('/api/searches/:id/run/stream', async (req, res) => {
 // scrape still work. New UI uses create + run/stream.
 router.post('/api/searches/sync', async (req, res) => {
   const { name, mode, polygon } = req.body || {};
-  if (!name || !mode || !Array.isArray(polygon) || polygon.length < 3) {
-    return res.status(400).json({ error: 'name, mode, polygon (>=3 vertices) required' });
-  }
-  if (mode !== 'farmland' && mode !== 'cabin' && mode !== 'commercial') {
-    return res.status(400).json({ error: 'mode must be farmland, cabin, or commercial' });
-  }
+  const err = validateSearchInput({ name, mode, polygon });
+  if (err) return res.status(400).json({ error: err });
 
-  const centroid = polygonCentroid(polygon);
-  const bbox = polygonBbox(polygon);
-  const halfLat = (bbox.maxLat - bbox.minLat) / 2;
-  const halfLng = (bbox.maxLng - bbox.minLng) / 2;
-  const radiusMi = Math.max(halfLat * 69, halfLng * 54.6);
+  const { centroid, radiusMi } = deriveSearchGeometry(polygon);
 
   const now = new Date().toISOString();
   const info = db.prepare(`

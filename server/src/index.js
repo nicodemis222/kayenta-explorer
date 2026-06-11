@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import routes from './routes.js';
 import { SERVER_PORT } from './config.js';
@@ -16,7 +17,7 @@ function isPortFree(port) {
     const tester = net.createServer()
       .once('error', () => resolve(false))
       .once('listening', () => tester.close(() => resolve(true)))
-      .listen(port, '0.0.0.0');
+      .listen(port, '127.0.0.1');
   });
 }
 
@@ -37,8 +38,47 @@ const portFile = path.join(__dirname, '..', '.port');
 const apiPidFile = path.join(__dirname, '..', '.api.pid');
 const app = express();
 
-app.use(cors());
-app.use(express.json());
+// ── Security posture ──────────────────────────────────────────────────────
+// This is a localhost-only desktop tool. We bind to 127.0.0.1 (see listen
+// below) so the API isn't reachable from other LAN devices, and we lock down
+// CORS + cross-origin mutations so a random web page the user visits can't
+// drive our mutating endpoints (POST /api/shutdown, /scrape, /searches…).
+
+const ALLOWED_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+// Scoped CORS: reflect only localhost/loopback origins, never "*".
+app.use(cors({
+  origin(origin, cb) {
+    // Same-origin / curl / server-to-server requests have no Origin header.
+    if (!origin || ALLOWED_ORIGIN.test(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+}));
+
+// Minimal security headers (helmet-lite — avoids a new dependency for a
+// loopback app): block framing/clickjacking, sniffing, and referrer leakage.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+
+// Reject cross-origin *mutating* requests outright. CORS only blocks reading
+// the response; the side effect would already have happened. An explicit
+// Origin check on state-changing verbs is what actually stops drive-by CSRF.
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  const origin = req.get('origin');
+  if (origin && !ALLOWED_ORIGIN.test(origin)) {
+    return res.status(403).json({ error: 'Cross-origin request blocked' });
+  }
+  next();
+});
+
+// Cap request bodies — a 50KB polygon is already ~5000 vertices; 64KB is a
+// generous ceiling that still bounds the point-in-polygon / JSON-parse cost.
+app.use(express.json({ limit: '64kb' }));
 
 // ── Auto-refresh: 3 times per day (every 8 hours) ──
 const REFRESH_INTERVAL_MS = 8 * 60 * 60 * 1000; // 8 hours
@@ -81,8 +121,6 @@ app.get('/api/next-refresh', (req, res) => {
 });
 
 // When manual scrape happens, reset the timer
-const originalPost = routes.stack?.find(r => r.route?.path === '/api/scrape' && r.route?.methods?.post);
-
 app.use((req, res, next) => {
   if (req.method === 'POST' && req.path === '/api/scrape') {
     const originalJson = res.json.bind(res);
@@ -112,6 +150,17 @@ function signalLauncher() {
     // Verify the PID is actually alive before signaling (avoid SIGTERMing a
     // recycled PID that now belongs to some unrelated process).
     try { process.kill(pid, 0); } catch { return false; }
+    // Defense-in-depth: confirm the PID really is our launcher (a bash running
+    // start.sh) and not a recycled PID owned by something else, before we
+    // SIGTERM it. If `ps` is unavailable or the command doesn't look like our
+    // launcher, skip the hand-off and just exit ourselves.
+    try {
+      const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+      if (!/start\.sh|bash/i.test(cmd)) {
+        console.log(`  Launcher pid ${pid} doesn't look like start.sh (${cmd.trim()}); not signaling`);
+        return false;
+      }
+    } catch { return false; }
     console.log(`  Found launcher pid ${pid}; sending SIGTERM so vite shuts down too`);
     process.kill(pid, 'SIGTERM');
     return true;
@@ -156,9 +205,11 @@ app.use(routes);
 const clientBuild = path.join(__dirname, '..', '..', 'client', 'dist');
 app.use(express.static(clientBuild));
 app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(clientBuild, 'index.html'));
+  // Unknown API routes get a real 404 instead of hanging or serving HTML.
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'Not found' });
   }
+  res.sendFile(path.join(clientBuild, 'index.html'));
 });
 
 const PREFERRED_PORT = Number(SERVER_PORT) || 3001;
@@ -178,7 +229,8 @@ async function listenWithRetry(startPort, maxAttempts = 10) {
     try {
       candidate = await findFreePort(candidate);
       await new Promise((resolve, reject) => {
-        const server = app.listen(candidate)
+        // Bind loopback-only so the API isn't exposed to the LAN.
+        const server = app.listen(candidate, '127.0.0.1')
           .once('listening', () => resolve(server))
           .once('error', reject);
       });

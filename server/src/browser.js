@@ -19,15 +19,24 @@ let browserPromise = null;
 let launchFailed = null; // cached Error from a prior failed launch — skips retries
 let warmedUp = false;
 
+// Best-effort synchronous close on hard process exit. Registered ONCE at
+// module load (not per-launch — that leaked a listener on every retry). We do
+// NOT register SIGINT/SIGTERM here: index.js owns graceful shutdown and calls
+// closeBrowser() from there. A second SIGTERM handler that called
+// process.exit(0) used to race ahead of index.js's db.close() + port-file
+// cleanup, leaking the .port / .api.pid files.
+process.on('exit', () => {
+  if (!browserPromise) return;
+  // browserPromise may be a pending promise; only close a resolved browser.
+  browserPromise.then?.(b => { try { b.close(); } catch {} });
+});
+
 async function launchBrowser() {
   console.log('  [browser] launching headless Chromium…');
   const browser = await chromium.launch({
     headless: true,
     args: ['--disable-blink-features=AutomationControlled'],
   });
-  process.on('exit', () => { try { browser.close(); } catch {} });
-  process.on('SIGINT',  () => { try { browser.close(); } catch {} process.exit(0); });
-  process.on('SIGTERM', () => { try { browser.close(); } catch {} process.exit(0); });
   return browser;
 }
 

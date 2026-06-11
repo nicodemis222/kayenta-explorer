@@ -67,12 +67,23 @@ export async function rerunSearch(id) {
  * Stream a scrape run via Server-Sent Events.
  * Calls `onEvent(type, data)` for every frame; throws on network error.
  * Returns a promise that resolves when the stream ends.
+ *
+ * Pass an AbortSignal to cancel the stream (e.g. on component unmount). When
+ * aborted, the fetch is cancelled and the function returns quietly instead of
+ * leaking a reader that calls setState on an unmounted component.
  */
-export async function runSearchStream(id, onEvent) {
-  const res = await fetch(`${BASE}/searches/${id}/run/stream`, {
-    method: 'POST',
-    headers: { 'Accept': 'text/event-stream' },
-  });
+export async function runSearchStream(id, onEvent, signal) {
+  let res;
+  try {
+    res = await fetch(`${BASE}/searches/${id}/run/stream`, {
+      method: 'POST',
+      headers: { 'Accept': 'text/event-stream' },
+      signal,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    throw err;
+  }
   if (!res.ok) throw new Error(`Run stream failed: ${res.status}`);
 
   const reader = res.body.getReader();
@@ -80,7 +91,15 @@ export async function runSearchStream(id, onEvent) {
   let buffer = '';
 
   while (true) {
-    const { done, value } = await reader.read();
+    if (signal?.aborted) { try { await reader.cancel(); } catch {} return; }
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (err) {
+      if (err?.name === 'AbortError' || signal?.aborted) return;
+      throw err;
+    }
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     // SSE frames are separated by a blank line ("\n\n")

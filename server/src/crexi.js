@@ -24,50 +24,19 @@
  * `feature:bunker-score:N` tag plus per-trait pills.
  */
 
-import { CITIES, polygonBbox, pointInPolygon } from './cities.js';
+import { pointInPolygon, findCity } from './cities.js';
+import { statesIntersecting } from './geo-states.js';
 import { newStealthContext, warmup } from './browser.js';
 import { detectBunkerFeatures, extractPropertyType } from './commercial.js';
 
-// Same regional state bboxes as unitedcountry.js / landwatch.js.
-const STATE_BBOX = {
-  ut: { minLat: 36.99, maxLat: 42.00, minLng: -114.05, maxLng: -109.04 },
-  nv: { minLat: 35.00, maxLat: 42.00, minLng: -120.01, maxLng: -114.04 },
-  az: { minLat: 31.33, maxLat: 37.00, minLng: -114.81, maxLng: -109.04 },
-  co: { minLat: 36.99, maxLat: 41.00, minLng: -109.06, maxLng: -102.04 },
-  nm: { minLat: 31.33, maxLat: 37.00, minLng: -109.06, maxLng: -103.00 },
-};
-
-function bboxOverlap(a, b) {
-  return !(a.maxLat < b.minLat || b.maxLat < a.minLat ||
-           a.maxLng < b.minLng || b.maxLng < a.minLng);
-}
-function statesIntersecting(polygon) {
-  const bbox = polygonBbox(polygon);
-  if (!bbox) return Object.keys(STATE_BBOX);
-  return Object.entries(STATE_BBOX)
-    .filter(([_, sb]) => bboxOverlap(bbox, sb))
-    .map(([code]) => code);
-}
-
-// City+state → {lat,lng}.
-const CITY_INDEX = (() => {
-  const m = new Map();
-  for (const c of CITIES) {
-    const [city, state] = c.name.split(',').map(s => s.trim());
-    if (!city || !state) continue;
-    m.set(`${city.toLowerCase()}|${state.toLowerCase()}`, { lat: c.lat, lng: c.lng });
-  }
-  return m;
-})();
-
-function lookupCoords(locality, region) {
-  if (!locality || !region) return null;
-  return CITY_INDEX.get(`${locality.toLowerCase()}|${region.toLowerCase()}`) || null;
-}
+const lookupCoords = findCity; // (locality, region) → { lat, lng } | null
 
 const MAX_PAGES_PER_STATE = 5; // 5 × 60 = up to 300 listings per state
 const PAGE_THROTTLE_MS = 2000;
-const HYDRATION_TIMEOUT_MS = 20000; // upper bound for Angular card hydration
+// Upper bound for Angular card hydration. Empirically 5–12s; 14s leaves a
+// margin without the old 20s worst-case slop (the waitForSelector resolves
+// the instant cards appear, so this only bites on a genuinely dead page).
+const HYDRATION_TIMEOUT_MS = 14000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

@@ -247,6 +247,34 @@ export function citiesWithinPolygon(polygon) {
 }
 
 /**
+ * Index of "city|state" (both lowercased) → { lat, lng }, built once from
+ * CITIES. Used by the schema-only scrapers (LandWatch, Crexi) that get a
+ * listing's locality + region from JSON-LD / card text but no coordinates,
+ * and approximate the position from our curated city centroids.
+ *
+ * Previously rebuilt independently inside landwatch.js and crexi.js;
+ * consolidated here as the single source of truth.
+ */
+export const CITY_INDEX = (() => {
+  const m = new Map();
+  for (const c of CITIES) {
+    const [city, state] = c.name.split(',').map(s => s.trim());
+    if (!city || !state) continue;
+    m.set(`${city.toLowerCase()}|${state.toLowerCase()}`, { lat: c.lat, lng: c.lng });
+  }
+  return m;
+})();
+
+/**
+ * Look up the centroid for a (locality, region) pair against CITY_INDEX.
+ * Returns { lat, lng } or null when the town isn't in our curated list.
+ */
+export function findCity(locality, region) {
+  if (!locality || !region) return null;
+  return CITY_INDEX.get(`${locality.toLowerCase()}|${region.toLowerCase()}`) || null;
+}
+
+/**
  * Centroid of a polygon (arithmetic mean of vertices). Used for fitting the map and labeling.
  */
 export function polygonCentroid(polygon) {

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import MapView from '../components/MapView.jsx';
 import SearchSidebar from '../components/SearchSidebar.jsx';
 import ListingCard from '../components/ListingCard.jsx';
+import Dialog from '../components/Dialog.jsx';
+import { bunkerScoreOf } from '../lib/bunkerTier.js';
 import { getSearches, createSearch, deleteSearch, rerunSearch, runSearchStream, renameSearch, getSearchListings } from '../api.js';
 
 const FEATURES = {
@@ -53,6 +55,11 @@ export default function ExploreView() {
   // Save-prompt modal: shown after Finish on a drawing. Lets the user set a name
   // plus the sqft / acreage thresholds before kicking off the scrape.
   const [savePrompt, setSavePrompt] = useState(null);
+  // Generic dialog state (replaces native confirm/prompt/alert):
+  //   { kind: 'confirm', message, onConfirm }
+  //   { kind: 'prompt',  message, value, onSubmit }
+  //   { kind: 'alert',   message }
+  const [dialog, setDialog] = useState(null);
   // null | { name, minSqft, minAcres, mode }
   // drawing state: { phase: 'idle'|'idle-ready'|'drawing'|'done', vertices: [[lat,lng], ...] }
   const [drawing, setDrawing] = useState({ phase: 'idle', vertices: [] });
@@ -76,9 +83,42 @@ export default function ExploreView() {
   const cardRefs = useRef({});
   const mapHandle = useRef(null);
   const restoredOnceRef = useRef(false);
+  // Set true only AFTER the initial restore finishes (or is determined to be
+  // unnecessary). Gates the persist effect so a slow getSearchListings can't
+  // race a mode-change that nulls activeSearch and clobber the saved id.
+  const restoreCompleteRef = useRef(false);
+  // AbortController for the in-flight SSE stream + the ribbon's hide timer, so
+  // we can cancel both on unmount / when a new stream starts.
+  const streamAbortRef = useRef(null);
+  const ribbonTimerRef = useRef(null);
   // Capture the persisted activeSearchId at mount so the persist effect
   // can't overwrite it before refreshSearches has a chance to restore.
   const initialActiveIdRef = useRef(persisted.activeSearchId ?? null);
+
+  // On unmount: abort any running stream and clear the ribbon timer so neither
+  // calls setState after the component is gone (App remounts via key=refreshKey).
+  useEffect(() => () => {
+    try { streamAbortRef.current?.abort(); } catch {}
+    if (ribbonTimerRef.current) clearTimeout(ribbonTimerRef.current);
+  }, []);
+
+  // Load a saved search's listings into the results pane. Stable identity
+  // (only setters + the API call) so refreshSearches can depend on it.
+  const handleSelectInner = useCallback(async (s) => {
+    setActiveSearch(s);
+    setLoading(true);
+    setDrawing({ phase: 'idle', vertices: [] });
+    setFocusedListingId(null);
+    try {
+      const data = await getSearchListings(s.id);
+      setListings(data.listings || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  const handleSelect = handleSelectInner;
 
   const refreshSearches = useCallback(async () => {
     const data = await getSearches();
@@ -87,24 +127,27 @@ export default function ExploreView() {
 
     // One-time restore of last active search on initial mount.
     // Uses the id captured at mount via useRef, so the persist effect can't have
-    // clobbered it in the meantime.
+    // clobbered it in the meantime. restoreCompleteRef flips only after the
+    // (async) restore settles, so the persist effect stays inert until then.
     if (!restoredOnceRef.current) {
       restoredOnceRef.current = true;
       const savedId = initialActiveIdRef.current;
-      if (savedId) {
-        const match = ofMode.find(s => s.id === savedId);
-        if (match) handleSelectInner(match);
+      const match = savedId ? ofMode.find(s => s.id === savedId) : null;
+      if (match) {
+        handleSelectInner(match).finally(() => { restoreCompleteRef.current = true; });
+      } else {
+        restoreCompleteRef.current = true;
       }
     }
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, handleSelectInner]);
 
   useEffect(() => { refreshSearches(); }, [refreshSearches]);
 
   // Persist mode + activeSearch.id whenever they change.
-  // Gate on restoredOnceRef so the very first run (with activeSearch=null,
-  // before async refresh resolves) doesn't overwrite the saved id.
+  // Gate on restoreCompleteRef so a slow initial restore can't be clobbered by
+  // an early mode-change (which nulls activeSearch) before restore resolves.
   useEffect(() => {
-    if (!restoredOnceRef.current) return;
+    if (!restoreCompleteRef.current) return;
     const state = { mode, activeSearchId: activeSearch?.id ?? null };
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
   }, [mode, activeSearch?.id]);
@@ -116,9 +159,10 @@ export default function ExploreView() {
       if (e.key === 'Escape') {
         setDrawing({ phase: 'idle', vertices: [] });
       } else if (e.key === 'Enter') {
-        if (drawing.phase === 'drawing' && drawing.vertices.length >= 3) {
-          setDrawing({ ...drawing, phase: 'done' });
-        }
+        // Functional updater — no stale-closure dependency on `drawing`.
+        setDrawing(d => (d.phase === 'drawing' && d.vertices.length >= 3)
+          ? { ...d, phase: 'done' }
+          : d);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -159,45 +203,45 @@ export default function ExploreView() {
     setDrawing({ phase: 'idle-ready', vertices: [] });
   };
 
-  // Inner version so it can be invoked from refreshSearches without violating exhaustive-deps cycle
-  const handleSelectInner = async (s) => {
-    setActiveSearch(s);
-    setLoading(true);
-    setDrawing({ phase: 'idle', vertices: [] });
-    setFocusedListingId(null);
-    try {
-      const data = await getSearchListings(s.id);
-      setListings(data.listings || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  const handleSelect = handleSelectInner;
-
-  const handleDelete = async (s) => {
-    if (!confirm(`Delete search "${s.name}"?`)) return;
-    await deleteSearch(s.id);
-    if (activeSearch?.id === s.id) {
-      setActiveSearch(null);
-      setListings([]);
-    }
-    refreshSearches();
+  const handleDelete = (s) => {
+    setDialog({
+      kind: 'confirm',
+      message: `Delete search "${s.name}"? This can't be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        setDialog(null);
+        await deleteSearch(s.id);
+        if (activeSearch?.id === s.id) {
+          setActiveSearch(null);
+          setListings([]);
+        }
+        refreshSearches();
+      },
+    });
   };
 
-  const handleRename = async (s) => {
-    const next = prompt(`Rename "${s.name}" to:`, s.name);
-    if (!next || next.trim() === '' || next.trim() === s.name) return;
-    try {
-      await renameSearch(s.id, next.trim());
-      await refreshSearches();
-      if (activeSearch?.id === s.id) {
-        setActiveSearch(prev => prev ? { ...prev, name: next.trim() } : prev);
-      }
-    } catch (err) {
-      alert(`Rename failed: ${err.message}`);
-    }
+  const handleRename = (s) => {
+    setDialog({
+      kind: 'prompt',
+      message: `Rename "${s.name}" to:`,
+      value: s.name,
+      confirmLabel: 'Rename',
+      onSubmit: async (next) => {
+        const trimmed = (next || '').trim();
+        if (!trimmed || trimmed === s.name) { setDialog(null); return; }
+        try {
+          await renameSearch(s.id, trimmed);
+          await refreshSearches();
+          if (activeSearch?.id === s.id) {
+            setActiveSearch(prev => prev ? { ...prev, name: trimmed } : prev);
+          }
+          setDialog(null);
+        } catch (err) {
+          setDialog({ kind: 'alert', message: `Rename failed: ${err.message}` });
+        }
+      },
+    });
   };
 
   /**
@@ -207,6 +251,12 @@ export default function ExploreView() {
    * Returns when the stream closes (server emitted `done`).
    */
   const streamScrape = async (search, label) => {
+    // Cancel any prior stream + pending ribbon-hide before starting a new one.
+    try { streamAbortRef.current?.abort(); } catch {}
+    if (ribbonTimerRef.current) { clearTimeout(ribbonTimerRef.current); ribbonTimerRef.current = null; }
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
     setActiveSearch(search);
     setListings([]);
     setFocusedListingId(null);
@@ -255,17 +305,23 @@ export default function ExploreView() {
         } else if (event === 'error') {
           setScrapeStatus({ message: `Error: ${data.message}`, label, isRunning: false });
         }
-      });
+      }, controller.signal);
     } catch (err) {
       console.error(err);
       setScrapeStatus({ message: `Stream error: ${err.message}`, label, isRunning: false });
     }
 
+    // If this stream was superseded/aborted, don't touch state — a newer run
+    // (or unmount) owns the UI now.
+    if (controller.signal.aborted) return;
+
     // Replace provisional listings with the final deduped set
     if (finalListings) setListings(finalListings);
     await refreshSearches();
-    // Hide the ribbon after a brief moment so the user sees the "done" line
-    setTimeout(() => setScrapeStatus(null), 4000);
+    // Hide the ribbon after a brief moment so the user sees the "done" line.
+    // Tracked in a ref so a subsequent run can cancel it before it clobbers
+    // the newer ribbon.
+    ribbonTimerRef.current = setTimeout(() => setScrapeStatus(null), 4000);
   };
 
   const handleRerun = async (s) => {
@@ -310,7 +366,7 @@ export default function ExploreView() {
       await refreshSearches();
       await streamScrape(created.search, `Collecting ${mode} listings for "${name.trim()}"`);
     } catch (err) {
-      alert(`Failed: ${err.message}`);
+      setDialog({ kind: 'alert', message: `Failed: ${err.message}` });
     }
   };
 
@@ -341,11 +397,16 @@ export default function ExploreView() {
     setDrawing({ phase: 'done', vertices: poly });
   };
 
-  const handleFocusListing = (id) => {
+  // Stable identity so React.memo(MapView) isn't defeated by a new closure
+  // every render.
+  const handleFocusListing = useCallback((id) => {
     setFocusedListingId(id);
     const el = cardRefs.current[id];
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
+  }, []);
+
+  // Stable ref-setter for MapView's imperative handle.
+  const registerMapHandle = useCallback((h) => { mapHandle.current = h; }, []);
 
   const minP = minPrice === '' ? null : Number(minPrice);
   const maxP = maxPrice === '' ? null : Number(maxPrice);
@@ -378,47 +439,45 @@ export default function ExploreView() {
     return counts;
   }, [listings, mode]);
 
-  const filteredListings = listings
-    .filter(l => {
-      const amen = Array.isArray(l.amenities) ? l.amenities : [];
-      if (!Object.entries(featureFilters).every(([k, on]) => !on || amen.includes(k))) return false;
-      if (minP != null && (l.price ?? 0) < minP) return false;
-      if (maxP != null && (l.price ?? Infinity) > maxP) return false;
-      // Min-bunker-fit gate (commercial mode). A listing without a bunker
-      // score is treated as 0 — that matches what we expect for non-
-      // commercial sources without bunker signal.
-      if (minBunker > 0) {
-        const tag = amen.find(a => String(a).startsWith('feature:bunker-score:'));
-        const s = tag ? Number(String(tag).split(':').pop()) : 0;
-        if (s < minBunker) return false;
-      }
-      // Acreage bucket gate. Listings whose acreage can't be determined are
-      // hidden whenever a bucket is active — the bucket is a refinement,
-      // and undecidable data shouldn't sneak through.
-      if (acreageBucket) {
-        const ac = listingAcres(l);
-        if (ac == null) return false;
-        if (ac < acreageBucket.min) return false;
-        if (acreageBucket.max != null && ac >= acreageBucket.max) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const dir = sortDir === 'asc' ? 1 : -1;
-      const getKey = (l) => {
-        if (sortKey === 'price') return l.price ?? 0;
-        if (sortKey === 'sqft')  return l.sqft  ?? 0;
-        if (sortKey === 'date')  return new Date(l.date_first_seen || 0).getTime();
-        if (sortKey === 'bunker') {
-          const tag = Array.isArray(l.amenities)
-            ? l.amenities.find(a => String(a).startsWith('feature:bunker-score:'))
-            : null;
-          return tag ? Number(String(tag).split(':').pop()) : -1;
+  // Filter + sort is recomputed only when an input it depends on changes —
+  // not on every unrelated render (mobile-drawer toggle, map hover, etc.).
+  // Each listing's bunker score is read once per pass via bunkerScoreOf.
+  const filteredListings = useMemo(() => {
+    return listings
+      .filter(l => {
+        const amen = Array.isArray(l.amenities) ? l.amenities : [];
+        if (!Object.entries(featureFilters).every(([k, on]) => !on || amen.includes(k))) return false;
+        if (minP != null && (l.price ?? 0) < minP) return false;
+        if (maxP != null && (l.price ?? Infinity) > maxP) return false;
+        // Min-bunker-fit gate (commercial mode). A listing without a bunker
+        // score is treated as 0.
+        if (minBunker > 0) {
+          const s = bunkerScoreOf(amen) ?? 0;
+          if (s < minBunker) return false;
         }
-        return 0;
-      };
-      return (getKey(a) - getKey(b)) * dir;
-    });
+        // Acreage bucket gate. Listings whose acreage can't be determined are
+        // hidden whenever a bucket is active — the bucket is a refinement,
+        // and undecidable data shouldn't sneak through.
+        if (acreageBucket) {
+          const ac = listingAcres(l);
+          if (ac == null) return false;
+          if (ac < acreageBucket.min) return false;
+          if (acreageBucket.max != null && ac >= acreageBucket.max) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const dir = sortDir === 'asc' ? 1 : -1;
+        const getKey = (l) => {
+          if (sortKey === 'price') return l.price ?? 0;
+          if (sortKey === 'sqft')  return l.sqft  ?? 0;
+          if (sortKey === 'date')  return new Date(l.date_first_seen || 0).getTime();
+          if (sortKey === 'bunker') return bunkerScoreOf(l.amenities) ?? -1;
+          return 0;
+        };
+        return (getKey(a) - getKey(b)) * dir;
+      });
+  }, [listings, featureFilters, minP, maxP, minBunker, acreageBucket, sortKey, sortDir]);
 
   const displayPolygon = activeSearch?.polygon || null;
 
@@ -428,10 +487,17 @@ export default function ExploreView() {
 
   return (
     <div className={`explore-layout ${sidebarOpen ? 'sidebar-open' : ''}`}>
-      {sidebarOpen && <div className="sidebar-scrim" onClick={closeDrawer} />}
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-scrim"
+          aria-label="Close search list"
+          onClick={closeDrawer}
+        />
+      )}
 
       {scrapeStatus && (
-        <div className={`scrape-ribbon ${scrapeStatus.isRunning ? 'running' : 'done'}`} role="status" aria-live="polite">
+        <div className={`scrape-ribbon ${scrapeStatus.isRunning ? 'running' : 'done'}`} role="status" aria-live="polite" aria-atomic="true">
           {scrapeStatus.isRunning && <div className="spinner-sm" />}
           {!scrapeStatus.isRunning && <span className="ribbon-check">✓</span>}
           <div className="ribbon-text">
@@ -441,10 +507,52 @@ export default function ExploreView() {
         </div>
       )}
 
+      {dialog && (
+        <Dialog
+          title={dialog.kind === 'confirm' ? 'Please confirm'
+            : dialog.kind === 'prompt' ? 'Rename search'
+            : 'Notice'}
+          labelId="generic-dialog-title"
+          onClose={() => setDialog(null)}
+        >
+          {dialog.kind === 'prompt' ? (
+            <form
+              onSubmit={(e) => { e.preventDefault(); dialog.onSubmit?.(e.target.elements.dlgValue.value); }}
+            >
+              <label className="save-field">
+                <span>{dialog.message}</span>
+                <input name="dlgValue" type="text" defaultValue={dialog.value} autoFocus />
+              </label>
+              <div className="save-modal-actions">
+                <button type="button" className="btn" onClick={() => setDialog(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{dialog.confirmLabel || 'OK'}</button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <p style={{ margin: '0 0 16px', color: 'var(--text-muted)' }}>{dialog.message}</p>
+              <div className="save-modal-actions">
+                {dialog.kind === 'confirm' ? (
+                  <>
+                    <button className="btn" onClick={() => setDialog(null)}>Cancel</button>
+                    <button
+                      className={`btn ${dialog.danger ? 'btn-shutdown' : 'btn-primary'}`}
+                      onClick={() => dialog.onConfirm?.()}
+                    >
+                      {dialog.confirmLabel || 'Confirm'}
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn btn-primary" onClick={() => setDialog(null)}>OK</button>
+                )}
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+
       {savePrompt && (
-        <div className="save-modal-backdrop" onClick={handleCancelSavePrompt}>
-          <div className="save-modal" onClick={e => e.stopPropagation()}>
-            <h3>Save and search</h3>
+        <Dialog title="Save and search" labelId="save-modal-title" onClose={handleCancelSavePrompt}>
             <label className="save-field">
               <span>Name</span>
               <input
@@ -485,8 +593,7 @@ export default function ExploreView() {
                 Save and search
               </button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       <SearchSidebar
@@ -518,7 +625,7 @@ export default function ExploreView() {
             listings={filteredListings}
             focusedListingId={focusedListingId}
             onMarkerClick={handleFocusListing}
-            registerHandle={(h) => { mapHandle.current = h; }}
+            registerHandle={registerMapHandle}
           />
 
           {drawing.phase === 'done' && (
@@ -579,6 +686,7 @@ export default function ExploreView() {
                     type="number"
                     inputMode="numeric"
                     placeholder="Min $"
+                    aria-label="Minimum price"
                     value={minPrice}
                     onChange={e => setMinPrice(e.target.value)}
                   />
@@ -587,12 +695,15 @@ export default function ExploreView() {
                     type="number"
                     inputMode="numeric"
                     placeholder="Max $"
+                    aria-label="Maximum price"
                     value={maxPrice}
                     onChange={e => setMaxPrice(e.target.value)}
                   />
                 </div>
                 <div
                   className="bunker-filter"
+                  role="radiogroup"
+                  aria-label="Filter results by acreage"
                   title="Filter results by acreage. Uses the county-GIS parcel data when available, otherwise parses the listing's lot_size text. Listings without parseable acreage are hidden when any bucket is active."
                 >
                   <span className="bunker-filter-label">Acres:</span>
@@ -611,6 +722,8 @@ export default function ExploreView() {
                       <button
                         key={opt.label}
                         type="button"
+                        role="radio"
+                        aria-checked={isActive}
                         className={`tier-btn ${isActive ? 'active' : ''}`}
                         onClick={() => setAcreageBucket(opt.v)}
                       >
@@ -622,6 +735,8 @@ export default function ExploreView() {
                 {mode === 'commercial' && (
                   <div
                     className="bunker-filter"
+                    role="radiogroup"
+                    aria-label="Filter results by bunker fit"
                     title="Bunker fit = our 0–10 score for how well each commercial listing matches bunker-conversion traits (underground, industrial, loading dock, 3-phase power, off-grid utilities, well/septic, concrete/reinforced). Use the buttons to hide weak candidates."
                   >
                     <span className="bunker-filter-label">Bunker fit:</span>
@@ -633,6 +748,8 @@ export default function ExploreView() {
                       <button
                         key={opt.v}
                         type="button"
+                        role="radio"
+                        aria-checked={minBunker === opt.v}
                         className={`tier-btn ${minBunker === opt.v ? 'active' : ''}`}
                         onClick={() => setMinBunker(opt.v)}
                         title={
@@ -657,10 +774,11 @@ export default function ExploreView() {
                   </select>
                   <button
                     className="btn-sort-dir"
+                    aria-label={`Sort direction: ${sortDir === 'asc' ? 'ascending' : 'descending'}. Activate to toggle.`}
                     onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
                     title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
                   >
-                    {sortDir === 'asc' ? '↑' : '↓'}
+                    <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>
                   </button>
                 </div>
               </div>
@@ -700,9 +818,19 @@ export default function ExploreView() {
               {filteredListings.map(l => (
                 <div
                   key={l.id}
-                  ref={el => { if (el) cardRefs.current[l.id] = el; }}
-                  className={focusedListingId === l.id ? 'focused' : ''}
+                  ref={el => { if (el) cardRefs.current[l.id] = el; else delete cardRefs.current[l.id]; }}
+                  className={`card-cell ${focusedListingId === l.id ? 'focused' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={focusedListingId === l.id}
+                  aria-label={`Focus ${l.address || 'listing'} on the map`}
                   onClick={() => handleFocusListing(l.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleFocusListing(l.id);
+                    }
+                  }}
                 >
                   <ListingCard listing={l} />
                 </div>

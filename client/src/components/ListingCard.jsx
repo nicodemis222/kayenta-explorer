@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { tierFor, TIER_GLYPH } from '../lib/bunkerTier.js';
 
 function formatPrice(price, type) {
   if (!price) return 'N/A';
@@ -111,14 +112,8 @@ export default function ListingCard({ listing }) {
     concrete: 'Concrete / Reinforced',
   };
 
-  // 0–10 → tier label for the badge.
-  // Thresholds match server/src/commercial.js → bunkerTier() and the map
-  // marker color logic: Crexi card text is sparse so industrial-only
-  // listings score ~3, and we want those to read as "high".
-  const bunkerTier =
-    bunkerScore == null ? null :
-    bunkerScore >= 3    ? 'high'  :
-    bunkerScore >= 1    ? 'medium': 'low';
+  // 0–10 → tier label for the badge. Single source of truth in lib/bunkerTier.
+  const bunkerTier = tierFor(bunkerScore);
 
   // Build the "why this scored" tooltip from the bunker-relevant feature
   // pills present on this listing. Falls back to a generic explainer when
@@ -145,7 +140,9 @@ export default function ListingCard({ listing }) {
         {previewUrl ? (
           <img
             src={previewUrl}
-            alt={address || 'Property'}
+            alt={previewUrl !== image_url
+              ? `Satellite view of ${address || 'the property location'}`
+              : (address || 'Property photo')}
             loading="lazy"
             onError={() => {
               // If the satellite tile failed (rare, but Esri can 503 occasionally
@@ -177,6 +174,8 @@ export default function ListingCard({ listing }) {
               className={`bunker-badge bunker-${bunkerTier}`}
               title={bunkerTooltip}
             >
+              {/* Glyph is a non-color tier cue (WCAG 1.4.1). */}
+              <span className="bunker-badge-glyph" aria-hidden="true">{TIER_GLYPH[bunkerTier]}</span>
               Bunker fit: {bunkerScore}/10
             </span>
           )}
@@ -232,20 +231,20 @@ export default function ListingCard({ listing }) {
         )}
 
         {description && (
-          <p
-            style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10, cursor: description.length > truncateAt ? 'pointer' : 'default' }}
-            onClick={(e) => {
-              if (description.length > truncateAt) {
-                e.stopPropagation();
-                setDescExpanded(v => !v);
-              }
-            }}
-            title={description.length > truncateAt ? (descExpanded ? 'Click to collapse' : 'Click to expand') : ''}
-          >
-            {description.length > truncateAt && !descExpanded
-              ? description.slice(0, truncateAt) + '… (more)'
-              : description}
-          </p>
+          description.length > truncateAt ? (
+            <button
+              type="button"
+              className="desc-toggle"
+              aria-expanded={descExpanded}
+              onClick={(e) => { e.stopPropagation(); setDescExpanded(v => !v); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+            >
+              {descExpanded ? description : description.slice(0, truncateAt) + '… '}
+              <span className="desc-toggle-cue">{descExpanded ? '(less)' : '(more)'}</span>
+            </button>
+          ) : (
+            <p className="desc-static">{description}</p>
+          )
         )}
 
         {visibleFeatureFlags.length > 0 && (

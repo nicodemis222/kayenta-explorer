@@ -14,32 +14,9 @@
  * cached by URL → JSON for 30 minutes.
  */
 
-import { pointInPolygon, polygonBbox } from './cities.js';
-import { detectBunkerFeatures, BASEMENT_PATTERNS } from './commercial.js';
-
-// Rough bounding boxes for the five regional states.
-// If the user's polygon's bbox doesn't overlap a state's bbox, we can skip every URL
-// under /properties/{state}/ entirely instead of fetching each one to check coords.
-const STATE_BBOX = {
-  ut: { minLat: 36.99, maxLat: 42.00, minLng: -114.05, maxLng: -109.04 },
-  nv: { minLat: 35.00, maxLat: 42.00, minLng: -120.01, maxLng: -114.04 },
-  az: { minLat: 31.33, maxLat: 37.00, minLng: -114.81, maxLng: -109.04 },
-  co: { minLat: 36.99, maxLat: 41.00, minLng: -109.06, maxLng: -102.04 },
-  nm: { minLat: 31.33, maxLat: 37.00, minLng: -109.06, maxLng: -103.00 },
-};
-
-function bboxOverlap(a, b) {
-  return !(a.maxLat < b.minLat || b.maxLat < a.minLat ||
-           a.maxLng < b.minLng || b.maxLng < a.minLng);
-}
-
-function statesIntersecting(polygon) {
-  const bbox = polygonBbox(polygon);
-  if (!bbox) return Object.keys(STATE_BBOX);
-  return Object.entries(STATE_BBOX)
-    .filter(([_, sb]) => bboxOverlap(bbox, sb))
-    .map(([code]) => code);
-}
+import { pointInPolygon } from './cities.js';
+import { statesIntersecting } from './geo-states.js';
+import { detectFarmFeatures } from './commercial.js';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -166,14 +143,7 @@ async function fetchListing(url) {
 
 function buildListing(parsed, listingType) {
   const now = new Date().toISOString();
-  const text = `${parsed.name} ${parsed.description}`;
-  const features = [];
-  if (/\b(creek|stream|spring[s]?|pond|river|water rights?|irrigation|well|share[s]? of water|year[- ]?round water)\b/i.test(text)) features.push('feature:water');
-  if (/\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i.test(text)) features.push('feature:solar');
-  if (/\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i.test(text)) features.push('feature:outbuilding');
-  if (/\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i.test(text)) features.push('feature:storage');
-  if (BASEMENT_PATTERNS.test(text)) features.push('feature:underground');
-  features.push(...detectBunkerFeatures(text, '', { minScore: 1 }));
+  const features = detectFarmFeatures(`${parsed.name} ${parsed.description}`);
 
   const fullAddress = [parsed.address, parsed.city, parsed.state, parsed.zip].filter(Boolean).join(', ');
 

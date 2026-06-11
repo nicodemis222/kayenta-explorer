@@ -48,7 +48,10 @@ const POWER_PATTERNS =
 const OFFGRID_PATTERNS =
   /\b(off[- ]?grid|solar|photovoltaic|pv (system|array)|wind turbine|self[- ]?sufficient|propane (tank|storage)|cistern|rain(water)?\s*collection)\b/i;
 
-const WATER_PATTERNS =
+// Bunker-scorer's water detector (well / septic / cistern / water rights) —
+// distinct from the farmland WATER_PATTERNS exported below, which keys on
+// surface water (creek / stream / pond) for the farm/cabin feature pills.
+const SEPTIC_WATER_PATTERNS =
   /\b(well|water rights?|spring|cistern|irrigation|share[s]? of water|year[- ]?round water|aquifer|septic|leach field)\b/i;
 
 const CONCRETE_PATTERNS =
@@ -56,6 +59,44 @@ const CONCRETE_PATTERNS =
 
 const BUNKER_NEGATIVE_PATTERNS =
   /\b(strip mall|shopping center|retail pad|coffee shop|restaurant pad|car wash|gas station|hotel|motel|professional plaza|medical office|class[ -]?a office tower|high[- ]?rise|apartment building|multifamily|single tenant retail)\b/i;
+
+// ── Farmland / cabin feature banks ────────────────────────────────────────
+// Shared by every for-sale source (Realtor, Hayden, United Country,
+// LandWatch, Mossy Oak). Previously copy-pasted inline into each scraper,
+// where they had silently drifted (Mossy Oak's copies had dropped
+// "year-round water" and a "shed" storage token). Canonicalized here.
+export const WATER_PATTERNS =
+  /\b(creek|stream|spring[s]?|pond|river|water rights?|irrigation|well|share[s]? of water|year[- ]?round water)\b/i;
+export const SOLAR_PATTERNS =
+  /\b(solar|photovoltaic|pv system|off[- ]?grid)\b/i;
+export const OUTBUILDING_PATTERNS =
+  /\b(barn|workshop|shop|outbuilding|out[- ]?building|garage|shed|stable[s]?|corral)\b/i;
+export const STORAGE_PATTERNS =
+  /\b(storage|shed|root cellar|cellar|workshop|out[- ]?building|garage)\b/i;
+export const CABIN_PATTERNS =
+  /\b(cabin|log home|a[- ]?frame|mountain retreat)\b/i;
+
+/**
+ * Detect farmland/cabin feature pills + any bunker-conversion signal in a
+ * blob of listing text. Returns a deduped array of `feature:*` tags. The
+ * bunker tags are only included when the text actually carries bunker signal
+ * (minScore: 1), so routine farmland listings stay clean.
+ *
+ * This is the single canonical implementation; every for-sale scraper calls
+ * it instead of carrying its own regex bank.
+ */
+export function detectFarmFeatures(blob) {
+  const text = blob || '';
+  const features = [];
+  if (WATER_PATTERNS.test(text))       features.push('feature:water');
+  if (SOLAR_PATTERNS.test(text))       features.push('feature:solar');
+  if (OUTBUILDING_PATTERNS.test(text)) features.push('feature:outbuilding');
+  if (STORAGE_PATTERNS.test(text))     features.push('feature:storage');
+  if (BASEMENT_PATTERNS.test(text))    features.push('feature:underground');
+  features.push(...detectBunkerFeatures(text, '', { minScore: 1 }));
+  // Dedup (BASEMENT + the bunker scorer can both emit feature:underground).
+  return [...new Set(features)];
+}
 
 // ── Property type normalization ──────────────────────────────────────────
 // Crexi card text contains e.g. "Industrial • 44,700 SqFt", "Office • 8.00% CAP",
@@ -97,7 +138,7 @@ export function detectBunkerFeatures(rawText, propertyType = '', opts = {}) {
   if (LOADING_DOCK_PATTERNS.test(text)){ features.push('feature:loading-dock'); score += 1; }
   if (POWER_PATTERNS.test(text))       { features.push('feature:heavy-power');  score += 1; }
   if (OFFGRID_PATTERNS.test(text))     { features.push('feature:off-grid');     score += 2; }
-  if (WATER_PATTERNS.test(text))       { features.push('feature:water');        score += 1; }
+  if (SEPTIC_WATER_PATTERNS.test(text)){ features.push('feature:water');        score += 1; }
   if (CONCRETE_PATTERNS.test(text))    { features.push('feature:concrete');     score += 1; }
 
   // Type-based weighting + structural-inference tagging. Crexi/LandSearch

@@ -16,7 +16,39 @@ import { searchLandsearchCommercial } from './landsearch.js';
 import { searchGsaCommercial } from './gsa.js';
 import { searchFudsCommercial } from './fuds.js';
 import { citiesWithinPolygon, polygonCentroid } from './cities.js';
-import db from './db.js';
+import db, { LISTING_COLUMNS } from './db.js';
+
+// Build the upsert statement ONCE from the schema's column allowlist, so a
+// stray object key from a scraped source can never land in a SQL identifier
+// position (defense-in-depth) and so better-sqlite3's statement cache always
+// hits (the old per-row dynamic SQL changed text every call and missed).
+//
+// Semantics preserved from the original per-field loop:
+//   - id              → conflict key, never updated
+//   - date_first_seen → set on insert only, never overwritten
+//   - date_last_seen  → always bumped to now
+//   - every other col → COALESCE(excluded.col, existing): a re-scrape that
+//     carries null/'' for a field keeps the existing value (don't clobber),
+//     but a real 0 IS written (the old `!value` skip dropped legitimate 0s).
+const UPSERT_COLUMNS = [...LISTING_COLUMNS];
+const UPSERT_SQL = (() => {
+  const cols = UPSERT_COLUMNS;
+  const insertCols = cols.join(', ');
+  const insertVals = cols.map(c => `@${c}`).join(', ');
+  const updates = cols
+    .filter(c => c !== 'id' && c !== 'date_first_seen')
+    .map(c => c === 'date_last_seen'
+      ? `date_last_seen = excluded.date_last_seen`
+      : `${c} = COALESCE(excluded.${c}, listings.${c})`)
+    .join(', ');
+  return `INSERT INTO listings (${insertCols}) VALUES (${insertVals})
+          ON CONFLICT(id) DO UPDATE SET ${updates}`;
+})();
+const upsertStmt = db.prepare(UPSERT_SQL);
+const priceHistStmt = db.prepare(
+  'INSERT INTO price_history (listing_id, price, recorded_at) VALUES (?, ?, ?)'
+);
+const existingPriceStmt = db.prepare('SELECT price FROM listings WHERE id = ?');
 
 /**
  * Normalize an address for deduplication.
@@ -80,55 +112,56 @@ function deduplicateListings(allListings) {
 
 /**
  * Upsert a listing into the database, tracking price changes.
+ * Uses the prebuilt column-allowlist UPSERT statement; binds a full,
+ * normalized row (unknown keys dropped, ''/undefined → null, 0 kept).
  */
 function upsertListing(listing) {
   const now = new Date().toISOString();
-  const existing = db.prepare('SELECT id, price FROM listings WHERE id = ?').get(listing.id);
+  const existing = existingPriceStmt.get(listing.id); // null when brand-new
+  const isNew = !existing;
 
+  // Build the bound row from the allowlist only.
+  const row = {};
+  for (const col of UPSERT_COLUMNS) {
+    let v = listing[col];
+    if (v === undefined || v === '') v = null; // keep 0 / false; drop empties
+    row[col] = v;
+  }
+  row.id = listing.id;
+  row.date_first_seen = listing.date_first_seen || now;
+  row.date_last_seen = now;
+
+  upsertStmt.run(row);
+
+  // Price-change tracking: record a history row on first sighting and on any
+  // change to a real (non-null, non-zero) price.
   let priceChanged = false;
-
-  if (existing) {
-    // Update existing listing
-    const updates = [];
-    const params = [];
-
-    for (const [key, value] of Object.entries(listing)) {
-      if (key === 'id' || key === 'date_first_seen' || !value) continue;
-      updates.push(`${key} = ?`);
-      params.push(value);
-    }
-    updates.push('date_last_seen = ?');
-    params.push(now);
-    params.push(listing.id);
-
-    db.prepare(`UPDATE listings SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-
-    // Check for price change
-    if (listing.price && listing.price !== existing.price) {
+  if (listing.price) {
+    if (isNew) {
+      priceHistStmt.run(listing.id, listing.price, now);
+    } else if (listing.price !== existing.price) {
       priceChanged = true;
-      db.prepare('INSERT INTO price_history (listing_id, price, recorded_at) VALUES (?, ?, ?)')
-        .run(listing.id, listing.price, now);
-    }
-  } else {
-    // Insert new listing
-    listing.date_first_seen = listing.date_first_seen || now;
-    listing.date_last_seen = now;
-
-    const columns = Object.keys(listing).filter(k => listing[k] !== undefined);
-    const placeholders = columns.map(() => '?').join(', ');
-    const values = columns.map(k => listing[k]);
-
-    db.prepare(`INSERT INTO listings (${columns.join(', ')}) VALUES (${placeholders})`).run(...values);
-
-    // Record initial price
-    if (listing.price) {
-      db.prepare('INSERT INTO price_history (listing_id, price, recorded_at) VALUES (?, ?, ?)')
-        .run(listing.id, listing.price, now);
+      priceHistStmt.run(listing.id, listing.price, now);
     }
   }
 
-  return { isNew: !existing, priceChanged };
+  return { isNew, priceChanged };
 }
+
+/**
+ * Upsert a batch of listings inside a single transaction — better-sqlite3's
+ * canonical bulk-write speedup (one fsync for the whole group instead of one
+ * per row). Returns aggregate counters.
+ */
+const upsertListings = db.transaction((listings) => {
+  let isNew = 0, updated = 0, priceChanges = 0;
+  for (const listing of listings) {
+    const r = upsertListing(listing);
+    if (r.isNew) isNew++; else updated++;
+    if (r.priceChanged) priceChanges++;
+  }
+  return { isNew, updated, priceChanges };
+});
 
 /**
  * Run a full scrape cycle using Realtor.com + Redfin APIs.
@@ -220,14 +253,8 @@ export async function runScrape() {
       console.log(`  Deduplication: ${allListings.length} total → ${unique.length} unique (${dupes} duplicates removed)`);
     }
 
-    // Upsert deduplicated listings
-    let groupNew = 0, groupUpdated = 0, groupPriceChanges = 0;
-    for (const listing of unique) {
-      const result = upsertListing(listing);
-      if (result.isNew) groupNew++;
-      else groupUpdated++;
-      if (result.priceChanged) groupPriceChanges++;
-    }
+    // Upsert deduplicated listings (single transaction)
+    const { isNew: groupNew, updated: groupUpdated, priceChanges: groupPriceChanges } = upsertListings(unique);
 
     results.total_found += unique.length;
     results.new_listings += groupNew;
@@ -373,11 +400,7 @@ export async function runScrapeForArea({ mode, polygon, minHouseSqft, maxHouseSq
   const merged = sourceResults.flat();
   const unique = deduplicateListings(merged);
 
-  let groupNew = 0;
-  for (const listing of unique) {
-    const result = upsertListing(listing);
-    if (result.isNew) groupNew++;
-  }
+  const { isNew: groupNew } = upsertListings(unique);
 
   console.log(`  ✓ ${unique.length} ${mode} listings after merge/dedup (${groupNew} new)`);
   onProgress({ type: 'final', listings: unique, total: unique.length, new: groupNew });

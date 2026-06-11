@@ -6,6 +6,43 @@
   padding: 0;
 }
 
+/* Visible keyboard-focus ring for all interactive elements, including the
+   role="button" card cells and sidebar rows (WCAG 2.4.7). Mouse clicks don't
+   trigger :focus-visible, so this only shows for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--accent-light, #d4956e);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.card-cell { cursor: pointer; }
+.card-cell:focus-visible,
+.sidebar-item:focus-visible {
+  outline: 2px solid var(--accent-light, #d4956e);
+  outline-offset: -2px;
+}
+
+/* Expandable description rendered as an in-flow button (keyboard-accessible,
+   aria-expanded) — styled to read like body text, not a control. */
+.desc-toggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.desc-toggle .desc-toggle-cue { color: var(--accent-light); font-weight: 600; }
+.desc-static {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
 :root {
   --bg: #0f1117;
   --bg-card: #1a1d27;
@@ -14,9 +51,13 @@
   --border: #2a2e3f;
   --text: #e4e6f0;
   --text-muted: #8b8fa3;
-  --text-dim: #5c6078;
+  /* Raised from #5c6078 (2.3:1, failed WCAG AA) to ~4.6:1 on the card bg. */
+  --text-dim: #898ea8;
   --accent: #c2785c;
   --accent-light: #d4956e;
+  /* Darker accent reserved for white-on-accent surfaces (primary button) so
+     the label clears WCAG AA contrast — #c2785c was only 3.5:1 with white. */
+  --accent-strong: #a8543a;
   --green: #4ade80;
   --green-bg: rgba(74, 222, 128, 0.1);
   --red: #f87171;
@@ -140,9 +181,10 @@ button {
 }
 
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
   color: white;
+  font-weight: 600;
 }
 
 .btn-primary:hover {
@@ -682,8 +724,11 @@ button {
 /* Zero-count pill — visually de-emphasized and non-clickable so users don't
    waste a click on a filter that can't return anything in this area. */
 .feature-pill.empty {
-  opacity: 0.35;
+  /* Raised from 0.35 — the dimmed label needs ≥3:1 non-text contrast and
+     the count must stay legible (WCAG 1.4.11). */
+  opacity: 0.6;
   cursor: not-allowed;
+  text-decoration: line-through;
 }
 .feature-pill.empty:hover {
   color: var(--text-muted);
@@ -742,6 +787,37 @@ button {
 .bunker-badge.bunker-high   { background: #d6f3df; color: #155f2c; border-color: #2f8e4c; }
 .bunker-badge.bunker-medium { background: #fde7c2; color: #7a4500; border-color: #c2785c; }
 .bunker-badge.bunker-low    { background: #ececec; color: #555;    border-color: #c8c8c8; }
+
+/* Non-color tier glyph inside the badge (H/M/L) — survives grayscale and
+   color-blindness (WCAG 1.4.1). */
+.bunker-badge-glyph {
+  display: inline-block;
+  min-width: 13px;
+  margin-right: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.18);
+  font-weight: 800;
+  text-align: center;
+}
+
+/* Bunker-fit map markers — a colored pin carrying the tier glyph. The letter
+   is the primary cue (color-blind safe); the fill color is redundant. */
+.bunker-marker { background: transparent; border: 0; }
+.bunker-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
 
 /* Federal-surplus badge — GSA auctions and USACE FUDS historical sites.
    Patriotic navy on cream to make government provenance unmistakable
