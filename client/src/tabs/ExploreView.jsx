@@ -83,6 +83,9 @@ export default function ExploreView() {
   const cardRefs = useRef({});
   const mapHandle = useRef(null);
   const restoredOnceRef = useRef(false);
+  // The mode at mount — the saved active-search id only belongs to this mode,
+  // so the one-time restore must only fire while we're still in it.
+  const initialModeRef = useRef(persisted.mode || 'farmland');
   // Set true only AFTER the initial restore finishes (or is determined to be
   // unnecessary). Gates the persist effect so a slow getSearchListings can't
   // race a mode-change that nulls activeSearch and clobber the saved id.
@@ -104,18 +107,24 @@ export default function ExploreView() {
 
   // Load a saved search's listings into the results pane. Stable identity
   // (only setters + the API call) so refreshSearches can depend on it.
+  // A monotonically-increasing token guards against a stale response: if the
+  // user picks search A then B before A resolves, A's late response is dropped
+  // so it can't overwrite B's listings.
+  const selectSeqRef = useRef(0);
   const handleSelectInner = useCallback(async (s) => {
+    const seq = ++selectSeqRef.current;
     setActiveSearch(s);
     setLoading(true);
     setDrawing({ phase: 'idle', vertices: [] });
     setFocusedListingId(null);
     try {
       const data = await getSearchListings(s.id);
+      if (seq !== selectSeqRef.current) return; // superseded by a newer select
       setListings(data.listings || []);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (seq === selectSeqRef.current) setLoading(false);
     }
   }, []);
   const handleSelect = handleSelectInner;
@@ -129,7 +138,7 @@ export default function ExploreView() {
     // Uses the id captured at mount via useRef, so the persist effect can't have
     // clobbered it in the meantime. restoreCompleteRef flips only after the
     // (async) restore settles, so the persist effect stays inert until then.
-    if (!restoredOnceRef.current) {
+    if (!restoredOnceRef.current && mode === initialModeRef.current) {
       restoredOnceRef.current = true;
       const savedId = initialActiveIdRef.current;
       const match = savedId ? ofMode.find(s => s.id === savedId) : null;
@@ -138,6 +147,11 @@ export default function ExploreView() {
       } else {
         restoreCompleteRef.current = true;
       }
+    } else if (!restoredOnceRef.current) {
+      // Mode changed before the first restore could run — there's nothing in
+      // this mode to restore; mark restore complete so persistence resumes.
+      restoredOnceRef.current = true;
+      restoreCompleteRef.current = true;
     }
   }, [mode, handleSelectInner]);
 
@@ -318,6 +332,10 @@ export default function ExploreView() {
     // Replace provisional listings with the final deduped set
     if (finalListings) setListings(finalListings);
     await refreshSearches();
+    // Re-check after the await: an unmount or a newer run could have aborted
+    // this controller while refreshSearches was in flight. Without this, the
+    // ribbon timer below would be set after unmount (the cleanup already ran).
+    if (controller.signal.aborted) return;
     // Hide the ribbon after a brief moment so the user sees the "done" line.
     // Tracked in a ref so a subsequent run can cancel it before it clobbers
     // the newer ribbon.

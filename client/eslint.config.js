@@ -35,6 +35,11 @@ export default [
       // app uses deliberately (derived-state sync on mode change, etc.).
       'react-hooks/exhaustive-deps': 'warn',
       'react-hooks/set-state-in-effect': 'warn',
+      // v7 interprocedural analysis flags the render-site of a callback that
+      // eventually reads a ref, even when the ref is only touched inside the
+      // callback's async body (the stale-response sequence-token guard in
+      // handleSelectInner). That access is in the correct place, not render.
+      'react-hooks/refs': 'warn',
       // Empty catch is an intentional "best effort, ignore failure" idiom here
       // (localStorage, AbortController.abort, reader.cancel).
       'no-empty': ['error', { allowEmptyCatch: true }],

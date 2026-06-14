@@ -156,7 +156,10 @@ function signalLauncher() {
     // launcher, skip the hand-off and just exit ourselves.
     try {
       const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-      if (!/start\.sh|bash/i.test(cmd)) {
+      // Require the command line to actually reference start.sh — a bare "bash"
+      // match was too permissive (any recycled bash PID owned by the same user
+      // would pass). The launcher always runs `bash ./start.sh`.
+      if (!/\bstart\.sh\b/i.test(cmd)) {
         console.log(`  Launcher pid ${pid} doesn't look like start.sh (${cmd.trim()}); not signaling`);
         return false;
       }

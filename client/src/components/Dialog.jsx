@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 
+// Focusable elements, excluding disabled ones — a disabled button (e.g. the
+// "Save and search" button while the name field is empty) must not be a focus
+// trap boundary or the initial focus target.
+const FOCUSABLE =
+  'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+
 /**
  * Accessible modal dialog (WCAG 2.4.3 / 4.1.2 / 2.1.2):
  *   - role="dialog" aria-modal, labelled by its title
@@ -19,9 +25,7 @@ export default function Dialog({ title, onClose, children, labelId = 'dialog-tit
   useEffect(() => {
     lastFocusedRef.current = document.activeElement;
     const panel = panelRef.current;
-    const focusable = panel?.querySelector(
-      'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
-    );
+    const focusable = panel?.querySelector(FOCUSABLE);
     (focusable || panel)?.focus();
     return () => {
       const el = lastFocusedRef.current;
@@ -39,9 +43,7 @@ export default function Dialog({ title, onClose, children, labelId = 'dialog-tit
     // Focus trap: wrap Tab / Shift+Tab at the edges.
     const panel = panelRef.current;
     if (!panel) return;
-    const items = panel.querySelectorAll(
-      'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
-    );
+    const items = panel.querySelectorAll(FOCUSABLE);
     if (items.length === 0) return;
     const first = items[0];
     const last = items[items.length - 1];

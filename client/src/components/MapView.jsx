@@ -278,34 +278,9 @@ function MapView({
           const ariaName = `${l.address || 'Listing'} — $${l.price?.toLocaleString() || 'N/A'}`
             + (score != null ? `, bunker fit ${score} of 10 (${tierName})` : '');
 
-          // Scored listings get a glyph pin (non-color tier cue, WCAG 1.4.1);
-          // unscored listings keep the plain blue dot.
-          const marker = score != null ? (
-            <Marker
-              key={l.id}
-              position={[l.latitude, l.longitude]}
-              icon={tierIcon(isFocused ? 'high' : tier, isFocused)}
-              keyboard
-              title={ariaName}
-              alt={ariaName}
-              eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
-            />
-          ) : (
-            <CircleMarker
-              key={l.id}
-              center={[l.latitude, l.longitude]}
-              radius={isFocused ? 10 : 6}
-              pathOptions={{
-                color: isFocused ? '#c2785c' : NO_SCORE_COLOR.stroke,
-                fillColor: isFocused ? '#c2785c' : NO_SCORE_COLOR.base,
-                fillOpacity: 1,
-                weight: 2,
-              }}
-              eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
-            />
-          );
-
-          return React.cloneElement(marker, {}, (
+          // Popup content is identical for both marker kinds — define once and
+          // pass as children (both Marker and CircleMarker render Popup children).
+          const popup = (
             <Popup>
               <div style={{ fontSize: 13 }}>
                 <strong>${l.price?.toLocaleString() || 'N/A'}</strong>
@@ -319,7 +294,38 @@ function MapView({
                 {l.url && <a href={l.url} target="_blank" rel="noopener noreferrer">View listing</a>}
               </div>
             </Popup>
-          ));
+          );
+
+          // Scored listings get a glyph pin (non-color tier cue, WCAG 1.4.1);
+          // unscored listings keep the plain blue dot.
+          return score != null ? (
+            <Marker
+              key={l.id}
+              position={[l.latitude, l.longitude]}
+              icon={tierIcon(isFocused ? 'high' : tier, isFocused)}
+              keyboard
+              title={ariaName}
+              alt={ariaName}
+              eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
+            >
+              {popup}
+            </Marker>
+          ) : (
+            <CircleMarker
+              key={l.id}
+              center={[l.latitude, l.longitude]}
+              radius={isFocused ? 10 : 6}
+              pathOptions={{
+                color: isFocused ? '#c2785c' : NO_SCORE_COLOR.stroke,
+                fillColor: isFocused ? '#c2785c' : NO_SCORE_COLOR.base,
+                fillOpacity: 1,
+                weight: 2,
+              }}
+              eventHandlers={{ click: () => onMarkerClick && onMarkerClick(l.id) }}
+            >
+              {popup}
+            </CircleMarker>
+          );
         })}
       </MapContainer>
 

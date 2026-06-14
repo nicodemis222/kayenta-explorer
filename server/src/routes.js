@@ -22,8 +22,9 @@ router.get('/api/listings', (req, res) => {
   } = req.query;
 
   // Parse numeric filters with Number() (no octal/hex surprises from parseInt
-  // without a radix); ignore non-finite / negative values.
-  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  // without a radix); ignore non-finite or negative values (price/sqft/beds
+  // floors are never negative, and a negative floor would no-op the filter).
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; };
 
   let sql = 'SELECT * FROM listings WHERE type = ?';
   const params = [type];
@@ -208,6 +209,23 @@ function expandSearch(row) {
   return { ...row, polygon };
 }
 
+// Parse + structurally validate a saved search's stored polygon before it's
+// handed to the scrapers. The create path validates on the way in, but a
+// corrupted/hand-edited DB row could still parse to JSON yet be structurally
+// invalid — re-validate at every run so it can't reach point-in-polygon /
+// the scrapers' URL builders malformed. Returns { polygon } or { error }.
+function parseStoredPolygon(row) {
+  let polygon;
+  try {
+    polygon = JSON.parse(row.polygon);
+  } catch {
+    return { error: 'Stored polygon is not valid JSON' };
+  }
+  const err = validateSearchInput({ name: row.name || 'x', mode: row.mode, polygon });
+  if (err) return { error: `Stored polygon is invalid: ${err}` };
+  return { polygon };
+}
+
 // GET /api/searches — list saved searches
 router.get('/api/searches', (req, res) => {
   const rows = db.prepare('SELECT * FROM searches ORDER BY last_run_at DESC, created_at DESC').all();
@@ -261,6 +279,11 @@ router.post('/api/searches/:id/run/stream', async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Search not found' });
   if (!row.polygon) return res.status(400).json({ error: 'Search has no polygon' });
 
+  // Validate the stored polygon BEFORE acquiring the lock or opening the SSE
+  // stream, so a corrupt row fails cleanly with a JSON 400.
+  const { polygon, error: polyErr } = parseStoredPolygon(row);
+  if (polyErr) return res.status(400).json({ error: polyErr });
+
   const lockKey = String(row.id);
   if (runningSearches.has(lockKey)) {
     return res.status(409).json({ error: 'A run for this search is already in progress' });
@@ -279,7 +302,6 @@ router.post('/api/searches/:id/run/stream', async (req, res) => {
   req.on('close', () => { aborted = true; });
 
   try {
-    const polygon = JSON.parse(row.polygon);
     const onProgress = (evt) => { if (!aborted) sse(res, evt.type, evt); };
     sse(res, 'start', { search: expandSearch(row) });
 
@@ -344,8 +366,10 @@ router.post('/api/searches/:id/run', async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Search not found' });
   if (!row.polygon) return res.status(400).json({ error: 'Search has no polygon; recreate it' });
 
+  const { polygon, error: polyErr } = parseStoredPolygon(row);
+  if (polyErr) return res.status(400).json({ error: polyErr });
+
   try {
-    const polygon = JSON.parse(row.polygon);
     const result = await runScrapeForArea({
       mode: row.mode,
       polygon,
