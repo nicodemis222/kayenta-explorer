@@ -25,7 +25,9 @@ export default defineConfig({
     strictPort: false,
     proxy: {
       '/api': {
-        target: `http://localhost:${apiPort}`,
+        // Explicit IPv4 — the API binds 127.0.0.1 only, so a "localhost"
+        // target could resolve to ::1 (IPv6) and fail to reach it.
+        target: `http://127.0.0.1:${apiPort}`,
         changeOrigin: true,
         // Don't buffer responses — required so Server-Sent Events
         // (POST /api/searches/:id/run/stream) flush event-by-event.

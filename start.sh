@@ -24,7 +24,7 @@ echo ""
 
 # Clear any stale .port / .api.pid / .vite.log so a previous crashed run
 # can't make us read live-process state that isn't actually live.
-rm -f "$DIR/server/.port" "$DIR/server/.api.pid" "$DIR/.vite.log"
+rm -f "$DIR/server/.port" "$DIR/server/.api.pid" "$DIR/.vite.log" "$DIR/.web.port"
 
 # Sweep orphan kayenta-explorer processes from a previous crashed run.
 # Without this sweep, a crashed launcher leaves a vite + esbuild pair holding
@@ -93,30 +93,52 @@ if [ "$API_PORT" != "$API_PORT_PREF" ]; then
   echo "Note: API port $API_PORT_PREF was in use — API is on $API_PORT"
 fi
 
-# Start Vite. strictPort:false in vite.config.js lets it auto-bump the web
-# port. KAYENTA_API_PORT must be the *actual* server port so the proxy works
-# even after a bump.
-echo "Starting React client (preferred :$WEB_PORT_PREF)..."
+# ── Pick a web port that's actually free on the IPv4 loopback ────────────
+# Why not just let Vite auto-bump? Vite binds whatever "localhost" resolves
+# to. If another app (e.g. ARK via OrbStack/Docker) holds 127.0.0.1:3000 on
+# IPv4 but ::1:3000 is free, Vite happily binds the IPv6 side, prints
+# "localhost:3000", and never bumps — then the browser opens localhost:3000,
+# resolves to IPv4, and lands on the OTHER app. So we scan for a port that is
+# free on 127.0.0.1 specifically (the stack the launcher/browser hits), skip
+# the API port, then pin Vite to it on IPv4 with --strictPort.
+find_free_web_port() {
+  node -e '
+    const net = require("net");
+    const start = +process.argv[1], skip = +process.argv[2];
+    (function probe(p) {
+      if (p > start + 50) { console.error("no free web port near " + start); process.exit(1); }
+      if (p === skip) return probe(p + 1);
+      const s = net.createServer();
+      s.once("error", () => probe(p + 1));
+      s.once("listening", () => s.close(() => { process.stdout.write(String(p)); process.exit(0); }));
+      s.listen(p, "127.0.0.1");
+    })(start);
+  ' "$1" "$2"
+}
+WEB_PORT=$(find_free_web_port "$WEB_PORT_PREF" "$API_PORT") || {
+  echo "ERROR: could not find a free web port near $WEB_PORT_PREF" >&2
+  kill "$SERVER_PID" 2>/dev/null || true; rm -f "$LAUNCHER_PID_FILE"; exit 1
+}
+if [ "$WEB_PORT" != "$WEB_PORT_PREF" ]; then
+  echo "Note: web port $WEB_PORT_PREF was in use — web is on $WEB_PORT"
+fi
+
+echo "Starting React client on :$WEB_PORT..."
 cd "$DIR/client"
 VITE_LOG="$DIR/.vite.log"
 : > "$VITE_LOG"
-# Spawn vite without piping through tee so $! is the npm-exec PID itself
-# (a pipeline's $! is the LAST stage, which used to be tee — that made
-# CLIENT_PID useless for liveness checks). Redirect stdout+stderr directly
-# into the log file.
-KAYENTA_API_PORT="$API_PORT" KAYENTA_WEB_PORT="$WEB_PORT_PREF" \
-  npx vite --port "$WEB_PORT_PREF" > "$VITE_LOG" 2>&1 &
+# --host 127.0.0.1 binds the same stack the browser uses; --strictPort means
+# Vite uses our pre-checked free port or fails loudly (no silent IPv6 bind of
+# a port another app holds on IPv4).
+KAYENTA_API_PORT="$API_PORT" KAYENTA_WEB_PORT="$WEB_PORT" \
+  npx vite --host 127.0.0.1 --port "$WEB_PORT" --strictPort > "$VITE_LOG" 2>&1 &
 CLIENT_PID=$!
 
-# Vite prints `  ➜  Local:   http://localhost:NNNN/` once ready. Parse the
-# actual port from that line so the banner reflects reality even if Vite
-# bumped. If vite dies before we see the line, or we hit our timeout with
-# no line, surface a clear error + the tail of the log instead of silently
-# pointing the user at a dead port.
-WEB_PORT=""
+# Readiness: poll the actual port until IT answers — don't trust the log's
+# host string. This proves *our* Vite (not some other app) is serving there.
 WAIT=0
 MAX_WAIT=40       # 0.5s × 40 = 20s
-while [ -z "$WEB_PORT" ] && [ $WAIT -lt $MAX_WAIT ]; do
+until curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$WEB_PORT/"; do
   if ! kill -0 "$CLIENT_PID" 2>/dev/null; then
     echo "ERROR: Vite exited before becoming ready. Last 20 lines of log:" >&2
     tail -n 20 "$VITE_LOG" >&2
@@ -124,27 +146,24 @@ while [ -z "$WEB_PORT" ] && [ $WAIT -lt $MAX_WAIT ]; do
     rm -f "$LAUNCHER_PID_FILE"
     exit 1
   fi
-  WEB_PORT=$(grep -oE 'Local:[[:space:]]+http://localhost:[0-9]+' "$VITE_LOG" 2>/dev/null \
-    | head -1 | grep -oE '[0-9]+$')
-  if [ -z "$WEB_PORT" ]; then
-    sleep 0.5
-    WAIT=$((WAIT + 1))
+  sleep 0.5
+  WAIT=$((WAIT + 1))
+  if [ $WAIT -ge $MAX_WAIT ]; then
+    echo "ERROR: Vite did not answer on :$WEB_PORT within 20s. Last 20 lines:" >&2
+    tail -n 20 "$VITE_LOG" >&2
+    kill "$CLIENT_PID" "$SERVER_PID" 2>/dev/null || true
+    rm -f "$LAUNCHER_PID_FILE"
+    exit 1
   fi
 done
-if [ -z "$WEB_PORT" ]; then
-  echo "ERROR: Vite did not become ready within 20s. Last 20 lines of log:" >&2
-  tail -n 20 "$VITE_LOG" >&2
-  kill "$CLIENT_PID" "$SERVER_PID" 2>/dev/null || true
-  rm -f "$LAUNCHER_PID_FILE"
-  exit 1
-fi
-if [ "$WEB_PORT" != "$WEB_PORT_PREF" ]; then
-  echo "Note: web port $WEB_PORT_PREF was in use — web is on $WEB_PORT"
-fi
+
+# Write the confirmed web port to a definitive file the launcher reads, so it
+# never has to guess (and never blind-falls-back to 3000 = the other app).
+echo "$WEB_PORT" > "$DIR/.web.port"
 
 echo ""
-echo "  Dashboard: http://localhost:$WEB_PORT"
-echo "  API:       http://localhost:$API_PORT"
+echo "  Dashboard: http://127.0.0.1:$WEB_PORT"
+echo "  API:       http://127.0.0.1:$API_PORT"
 echo ""
 echo "Press Ctrl+C to stop both servers."
 
@@ -185,7 +204,7 @@ cleanup() {
   pkill -f "$DIR/client/node_modules/.bin/vite"                   2>/dev/null || true
   pkill -f "$DIR/client/node_modules/@esbuild/.*/bin/esbuild"     2>/dev/null || true
 
-  rm -f "$DIR/.vite.log" "$DIR/server/.port" "$DIR/server/.api.pid" "$LAUNCHER_PID_FILE"
+  rm -f "$DIR/.vite.log" "$DIR/.web.port" "$DIR/server/.port" "$DIR/server/.api.pid" "$LAUNCHER_PID_FILE"
   exit
 }
 trap cleanup INT TERM

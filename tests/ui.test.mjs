@@ -39,14 +39,22 @@ const { chromium } = await import(
   path.join(ROOT, 'server', 'node_modules', 'playwright', 'index.mjs')
 );
 
-// Pull the live web port out of .vite.log if available, else default 3000.
+// Resolve the live web URL. Prefer the definitive .web.port file start.sh
+// writes once Vite is confirmed serving; fall back to parsing .vite.log
+// (Vite now binds 127.0.0.1, so accept either host in the banner). Always
+// use 127.0.0.1 to match the bind.
 function resolveWebUrl() {
+  const wp = path.join(ROOT, '.web.port');
+  if (fs.existsSync(wp)) {
+    const port = fs.readFileSync(wp, 'utf8').trim();
+    if (port) return `http://127.0.0.1:${port}`;
+  }
   const log = path.join(ROOT, '.vite.log');
   if (fs.existsSync(log)) {
-    const m = fs.readFileSync(log, 'utf8').match(/Local:\s+http:\/\/localhost:(\d+)/);
-    if (m) return `http://localhost:${m[1]}`;
+    const m = fs.readFileSync(log, 'utf8').match(/http:\/\/(?:localhost|127\.0\.0\.1):(\d+)/);
+    if (m) return `http://127.0.0.1:${m[1]}`;
   }
-  return 'http://localhost:3000';
+  return 'http://127.0.0.1:3000';
 }
 
 const URL = resolveWebUrl();

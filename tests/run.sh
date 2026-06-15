@@ -16,29 +16,30 @@ cd "$DIR"
 
 STARTED_BY_US=0
 
-# 1. Boot if needed
+# 1. Boot if needed. Readiness signal is .web.port — start.sh writes it only
+# after Vite is confirmed answering, so it's a stronger check than grepping
+# the log (and host-agnostic now that Vite binds 127.0.0.1).
 if [ -s server/.port ] && [ -s server/.api.pid ] \
    && kill -0 "$(cat server/.api.pid)" 2>/dev/null \
-   && [ -s .vite.log ] \
-   && grep -qE 'Local:\s+http://localhost:[0-9]+' .vite.log; then
-  echo "→ Using existing dev session (API on :$(cat server/.port))"
+   && [ -s .web.port ]; then
+  echo "→ Using existing dev session (API on :$(cat server/.port), web on :$(cat .web.port))"
 else
   echo "→ Booting app via start.sh for the test run…"
   nohup bash ./start.sh > .tests-launcher.log 2>&1 &
   STARTED_BY_US=1
-  # Wait up to 30s for both .port and .vite.log Local: line.
+  # Wait up to 30s for both .port and .web.port.
   for _ in $(seq 1 60); do
-    if [ -s server/.port ] && grep -qE 'Local:\s+http://localhost:[0-9]+' .vite.log 2>/dev/null; then
+    if [ -s server/.port ] && [ -s .web.port ]; then
       break
     fi
     sleep 0.5
   done
-  if ! [ -s server/.port ] || ! grep -qE 'Local:\s+http://localhost:[0-9]+' .vite.log 2>/dev/null; then
+  if ! [ -s server/.port ] || ! [ -s .web.port ]; then
     echo "✗ Boot failed — last 20 lines of launcher log:" >&2
     tail -20 .tests-launcher.log >&2
     exit 2
   fi
-  echo "  API on :$(cat server/.port)  |  Web on $(grep -oE 'Local:\s+http://localhost:[0-9]+' .vite.log | tail -1)"
+  echo "  API on :$(cat server/.port)  |  Web on :$(cat .web.port)"
 fi
 
 cleanup() {

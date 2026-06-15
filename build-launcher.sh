@@ -4,8 +4,8 @@
 # The launcher is a tiny LSUIElement bundle that:
 #   1. Resolves the project directory (recorded at build time below).
 #   2. Runs start.sh detached so the .app can return immediately.
-#   3. Polls for Vite's "Local: http://localhost:NNNN" banner and opens
-#      the dashboard in the default browser when it appears.
+#   3. Polls for the .web.port file start.sh writes once Vite is confirmed
+#      serving, and opens http://127.0.0.1:<port> in the default browser.
 #   4. Posts macOS notifications at each transition for visible feedback
 #      — important because LSUIElement bundles have no Dock tile.
 #
@@ -88,21 +88,35 @@ notify() {
 }
 
 resolve_web_port() {
-  # Vite logs the active port in .vite.log; fall back to the default 3000.
+  # Definitive: start.sh writes the confirmed web port to .web.port once Vite
+  # is actually answering on it. Never guess 3000 as a fallback — that port is
+  # often held by another app (ARK/OrbStack), and opening it would show the
+  # wrong site.
+  if [ -s "\$PROJECT_DIR/.web.port" ]; then
+    cat "\$PROJECT_DIR/.web.port"
+    return
+  fi
+  # Fallback: parse Vite's banner (match either localhost or 127.0.0.1).
   if [ -s "\$PROJECT_DIR/.vite.log" ]; then
     local p
-    p=\$(grep -oE 'Local:[[:space:]]+http://localhost:[0-9]+' "\$PROJECT_DIR/.vite.log" 2>/dev/null | tail -1 | grep -oE '[0-9]+\$')
+    p=\$(grep -oE 'http://(localhost|127\\.0\\.0\\.1):[0-9]+' "\$PROJECT_DIR/.vite.log" 2>/dev/null | tail -1 | grep -oE '[0-9]+\$')
     if [ -n "\$p" ]; then echo "\$p"; return; fi
   fi
-  echo "3000"
+  echo ""   # unknown — caller declines to open rather than guess
 }
 
 # LSUIElement bundles sometimes fail \`open URL\` because LaunchServices
 # doesn't wire the URL handler from a non-UI parent. AppleScript's
 # "open location" goes through the same path Cmd-click uses, which is
 # reliable from any GUI context. Try both — whichever wins, wins.
+# Always open 127.0.0.1 (IPv4) to match how start.sh binds Vite.
 open_dashboard() {
-  local url="\$1"
+  local port="\$1"
+  if [ -z "\$port" ]; then
+    notify "Couldn't determine the dashboard port — check .launcher.log"
+    return
+  fi
+  local url="http://127.0.0.1:\$port/"
   /usr/bin/osascript -e "open location \"\$url\"" >/dev/null 2>&1 \\
     || /usr/bin/open "\$url" \\
     || /usr/bin/open -a "Safari" "\$url" 2>/dev/null \\
@@ -128,7 +142,7 @@ open_dashboard() {
     LIVE_LISTENER=\$(lsof -ti:"\$PORT" -sTCP:LISTEN 2>/dev/null | head -1)
     if kill -0 "\$OUR_PID" 2>/dev/null && [ -n "\$LIVE_LISTENER" ] && [ "\$LIVE_LISTENER" = "\$OUR_PID" ]; then
       notify "Already running — opening dashboard."
-      open_dashboard "http://localhost:\$(resolve_web_port)/"
+      open_dashboard "\$(resolve_web_port)"
       exit 0
     fi
   fi
@@ -137,10 +151,11 @@ open_dashboard() {
   nohup bash ./start.sh >> "\$LOG_FILE" 2>&1 &
   disown || true
 
-  # Poll for vite's banner; open the browser when it appears.
-  for _ in \$(seq 1 60); do
-    if grep -qE 'Local:[[:space:]]+http://localhost:[0-9]+' "\$PROJECT_DIR/.vite.log" 2>/dev/null; then
-      open_dashboard "http://localhost:\$(resolve_web_port)/"
+  # Poll for the definitive .web.port file (start.sh writes it only after Vite
+  # is confirmed answering on that port); open the browser when it appears.
+  for _ in \$(seq 1 90); do
+    if [ -s "\$PROJECT_DIR/.web.port" ]; then
+      open_dashboard "\$(resolve_web_port)"
       notify "Kayenta Explorer is running."
       exit 0
     fi
@@ -148,7 +163,7 @@ open_dashboard() {
   done
 
   notify "Startup taking longer than expected — check .launcher.log"
-  open_dashboard "http://localhost:\$(resolve_web_port)/"
+  open_dashboard "\$(resolve_web_port)"
 } >> "\$LOG_FILE" 2>&1
 LAUNCHER
 

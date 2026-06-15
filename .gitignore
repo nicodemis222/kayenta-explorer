@@ -13,6 +13,7 @@ server/data/*.db-wal
 server/.port
 server/.api.pid
 .launcher.pid
+.web.port
 
 # Editor
 .vscode/
