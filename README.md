@@ -2,6 +2,8 @@
 
 Regional real-estate scraper and dashboard built around Ivins, UT.
 
+> **Last updated:** 2026-06-15 — built from Mac Studio (commit `342c111`).
+
 ## Modes
 
 - **Farmland** — properties within ~3 hrs of Ivins, UT with a 2,500+ sqft home on 5+ acres. Surfaces water (creek / well / water rights / irrigation), solar, and workshop/barn features detected from listing text.
