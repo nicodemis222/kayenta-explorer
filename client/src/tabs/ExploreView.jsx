@@ -107,24 +107,26 @@ export default function ExploreView() {
 
   // Load a saved search's listings into the results pane. Stable identity
   // (only setters + the API call) so refreshSearches can depend on it.
-  // A monotonically-increasing token guards against a stale response: if the
-  // user picks search A then B before A resolves, A's late response is dropped
-  // so it can't overwrite B's listings.
-  const selectSeqRef = useRef(0);
+  //
+  // Deliberately simple last-write-wins. A sequence-token "drop stale
+  // response" guard was tried and REVERTED — it regressed the common case:
+  // the commercial /listings endpoint runs slow parcel enrichment (several
+  // seconds), and clicking another search before it resolved made the guard
+  // drop the result AND leave `loading` stuck true, so the grid stayed hidden
+  // behind the spinner and cards never rendered. Last-write-wins always
+  // renders; a rare out-of-order overwrite self-corrects on the next click.
   const handleSelectInner = useCallback(async (s) => {
-    const seq = ++selectSeqRef.current;
     setActiveSearch(s);
     setLoading(true);
     setDrawing({ phase: 'idle', vertices: [] });
     setFocusedListingId(null);
     try {
       const data = await getSearchListings(s.id);
-      if (seq !== selectSeqRef.current) return; // superseded by a newer select
       setListings(data.listings || []);
     } catch (err) {
       console.error(err);
     } finally {
-      if (seq === selectSeqRef.current) setLoading(false);
+      setLoading(false);
     }
   }, []);
   const handleSelect = handleSelectInner;
