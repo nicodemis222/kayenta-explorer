@@ -2,7 +2,7 @@ import { Router } from 'express';
 import db from './db.js';
 import { runScrape, runScrapeForArea } from './scraper.js';
 import { pointInPolygon, polygonCentroid, polygonBbox } from './cities.js';
-import { enrichListings } from './parcels.js';
+import { enrichListingsCached, getParcelsForPoints } from './parcels.js';
 
 const router = Router();
 
@@ -426,10 +426,11 @@ router.delete('/api/searches/:id', (req, res) => {
 });
 
 // GET /api/searches/:id/listings — listings within this search's polygon.
-// Enriches each listing with parcel data (acres / bldg_sqft / yr_built /
-// prop_class / mkt_value) from the county GIS layer when the listing's
-// coordinates fall inside a supported UT county. Cached after first lookup.
-router.get('/api/searches/:id/listings', async (req, res) => {
+// Attaches ONLY already-cached parcel data (instant, no network) so the cards
+// render immediately. The client fills in the rest progressively via
+// POST /api/parcels — previously this awaited a full ArcGIS enrichment that
+// blocked the response for ~8–10s on a large commercial search.
+router.get('/api/searches/:id/listings', (req, res) => {
   const search = db.prepare('SELECT * FROM searches WHERE id = ?').get(req.params.id);
   if (!search) return res.status(404).json({ error: 'Search not found' });
 
@@ -442,15 +443,28 @@ router.get('/api/searches/:id/listings', async (req, res) => {
     .filter(l => polygon ? pointInPolygon(l.latitude, l.longitude, polygon) : false)
     .map(l => ({ ...l, amenities: tryParseJson(l.amenities) }));
 
-  // Best-effort parcel enrichment; if ArcGIS is slow/down, the response still
-  // ships with parcel=null and the UI renders without the extra fields.
-  try {
-    await enrichListings(inside, { concurrency: 4 });
-  } catch (err) {
-    console.warn('  [parcels] enrichment skipped:', err.message);
-  }
+  enrichListingsCached(inside); // cache-only; instant
 
   res.json({ search: expandSearch(search), listings: inside, count: inside.length });
+});
+
+// POST /api/parcels — on-demand county-GIS parcel lookup for a batch of points.
+// Body: { points: [{ id, lat, lng }, …] }. Returns { parcels: { [id]: parcel|null } }.
+// The client calls this AFTER rendering cards so parcel badges (acres /
+// bldg_sqft / mkt_value) fill in without blocking the initial render.
+router.post('/api/parcels', async (req, res) => {
+  const points = Array.isArray(req.body?.points) ? req.body.points : null;
+  if (!points) return res.status(400).json({ error: 'points array required' });
+  // Bound the work per request (defense against an oversized payload).
+  const capped = points.slice(0, 500)
+    .filter(p => p && p.id != null && Number.isFinite(+p.lat) && Number.isFinite(+p.lng))
+    .map(p => ({ id: p.id, lat: +p.lat, lng: +p.lng }));
+  try {
+    const parcels = await getParcelsForPoints(capped, { concurrency: 6 });
+    res.json({ parcels });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/scrape — trigger a manual scrape

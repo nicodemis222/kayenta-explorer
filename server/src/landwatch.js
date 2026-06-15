@@ -34,6 +34,20 @@ const lookupCoords = findCity; // (locality, region) → { lat, lng } | null
 const MAX_PAGES_PER_STATE = 5;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Fetch this many states concurrently (each on its own tab). Kept modest so
+// LandWatch's Akamai layer doesn't see a request spike; within each state the
+// path/page loops stay sequential with their 2s throttle.
+const STATE_CONCURRENCY = 3;
+async function mapLimit(items, limit, fn) {
+  const out = [];
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 // Listing-cache lives for the life of the process. Re-scrapes use it.
 const cache = new Map(); // url -> parsed
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -161,21 +175,29 @@ async function searchByPolygon(polygon, listingType) {
     console.warn(`    [landwatch] skipped — ${err.message}`);
     return [];
   }
-  const page = await context.newPage();
-  let listings = [];
+  const listings = [];
 
   try {
-    await warmup(page);
-    for (const stateCode of states) {
-      console.log(`    [landwatch] fetching ${stateCode}…`);
-      const items = await fetchStateListings(page, stateCode);
-      for (const entry of items) {
-        const parsed = parseLandwatchItem(entry, listingType);
-        if (!parsed) continue;
-        if (!pointInPolygon(parsed.latitude, parsed.longitude, polygon)) continue;
-        listings.push(parsed);
+    // Warm up once on the context, then fetch states concurrently (own tabs).
+    const warmPage = await context.newPage();
+    await warmup(warmPage);
+    await warmPage.close();
+
+    await mapLimit(states, STATE_CONCURRENCY, async (stateCode) => {
+      const page = await context.newPage();
+      try {
+        console.log(`    [landwatch] fetching ${stateCode}…`);
+        const items = await fetchStateListings(page, stateCode);
+        for (const entry of items) {
+          const parsed = parseLandwatchItem(entry, listingType);
+          if (!parsed) continue;
+          if (!pointInPolygon(parsed.latitude, parsed.longitude, polygon)) continue;
+          listings.push(parsed); // single-threaded; safe between awaits
+        }
+      } finally {
+        await page.close();
       }
-    }
+    });
   } finally {
     await context.close();
   }

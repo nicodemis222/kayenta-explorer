@@ -40,6 +40,22 @@ const HYDRATION_TIMEOUT_MS = 14000;
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Fetch this many states concurrently (each on its own tab). Modest so we
+// don't spike Crexi's request rate enough to trip rate-limiting; the
+// per-state page loop keeps its own 2s throttle.
+const STATE_CONCURRENCY = 3;
+
+// Run async fn over items with a bounded worker pool. Order-preserving.
+async function mapLimit(items, limit, fn) {
+  const out = [];
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 // Listing-cache lives for the life of the process. Re-scrapes use it.
 const cache = new Map(); // url -> { ts, cards }
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -206,21 +222,30 @@ async function searchByPolygon(polygon, listingType) {
     console.warn(`    [crexi] skipped — ${err.message}`);
     return [];
   }
-  const page = await context.newPage();
   const listings = [];
 
   try {
-    await warmup(page);
-    for (const stateCode of states) {
-      console.log(`    [crexi] fetching ${stateCode}…`);
-      const cards = await fetchStateCards(page, stateCode);
-      for (const card of cards) {
-        const parsed = buildListing(card, listingType);
-        if (!parsed) continue;
-        if (!pointInPolygon(parsed.latitude, parsed.longitude, polygon)) continue;
-        listings.push(parsed);
+    // Warm up once (establishes the Google referrer chain + cookies on the
+    // context), then fetch states concurrently — each on its own tab.
+    const warmPage = await context.newPage();
+    await warmup(warmPage);
+    await warmPage.close();
+
+    await mapLimit(states, STATE_CONCURRENCY, async (stateCode) => {
+      const page = await context.newPage();
+      try {
+        console.log(`    [crexi] fetching ${stateCode}…`);
+        const cards = await fetchStateCards(page, stateCode);
+        for (const card of cards) {
+          const parsed = buildListing(card, listingType);
+          if (!parsed) continue;
+          if (!pointInPolygon(parsed.latitude, parsed.longitude, polygon)) continue;
+          listings.push(parsed); // single-threaded; push between awaits is safe
+        }
+      } finally {
+        await page.close();
       }
-    }
+    });
   } finally {
     await context.close();
   }

@@ -3,44 +3,11 @@ import MapView from '../components/MapView.jsx';
 import SearchSidebar from '../components/SearchSidebar.jsx';
 import ListingCard from '../components/ListingCard.jsx';
 import Dialog from '../components/Dialog.jsx';
+import SaveSearchModal from '../components/SaveSearchModal.jsx';
+import ResultsControls from '../components/ResultsControls.jsx';
 import { bunkerScoreOf } from '../lib/bunkerTier.js';
-import { getSearches, createSearch, deleteSearch, rerunSearch, runSearchStream, renameSearch, getSearchListings } from '../api.js';
-
-const FEATURES = {
-  farmland: [
-    { key: 'feature:water', label: 'Water' },
-    { key: 'feature:solar', label: 'Solar' },
-    { key: 'feature:outbuilding', label: 'Workshop / Barn' },
-    { key: 'feature:underground', label: 'Basement / Underground' },
-  ],
-  cabin: [
-    { key: 'feature:water', label: 'Water' },
-    { key: 'feature:solar', label: 'Solar' },
-    { key: 'feature:storage', label: 'Storage' },
-    { key: 'feature:underground', label: 'Basement / Underground' },
-  ],
-  // Commercial mode is bunker-hunter focused — surface the conversion
-  // traits the user actually filters on (FM 5-103 / FEMA P-361 cues).
-  commercial: [
-    { key: 'feature:underground',  label: 'Underground' },
-    { key: 'feature:industrial',   label: 'Industrial' },
-    { key: 'feature:loading-dock', label: 'Loading Dock' },
-    { key: 'feature:heavy-power',  label: '3-Phase / Heavy Power' },
-    { key: 'feature:off-grid',     label: 'Off-Grid / Solar' },
-    { key: 'feature:water',        label: 'Well / Septic' },
-    { key: 'feature:concrete',     label: 'Concrete / Reinforced' },
-  ],
-};
-
-const LS_KEY = 'kayenta-explore-state';
-
-function loadPersisted() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch { return {}; }
-}
+import { FEATURES, LS_KEY, loadPersisted, listingAcres, defaultMinSqft } from '../lib/exploreHelpers.js';
+import { getSearches, createSearch, deleteSearch, runSearchStream, renameSearch, getSearchListings, fetchParcels } from '../api.js';
 
 export default function ExploreView() {
   const persisted = loadPersisted();
@@ -94,27 +61,57 @@ export default function ExploreView() {
   // we can cancel both on unmount / when a new stream starts.
   const streamAbortRef = useRef(null);
   const ribbonTimerRef = useRef(null);
+  // AbortController for in-flight background parcel enrichment, cancelled when
+  // the active search changes or on unmount.
+  const parcelAbortRef = useRef(null);
   // Capture the persisted activeSearchId at mount so the persist effect
   // can't overwrite it before refreshSearches has a chance to restore.
   const initialActiveIdRef = useRef(persisted.activeSearchId ?? null);
 
-  // On unmount: abort any running stream and clear the ribbon timer so neither
-  // calls setState after the component is gone (App remounts via key=refreshKey).
+  // On unmount: abort any running stream / parcel fetch and clear the ribbon
+  // timer so none call setState after the component is gone (App remounts via
+  // key=refreshKey).
   useEffect(() => () => {
     try { streamAbortRef.current?.abort(); } catch {}
+    try { parcelAbortRef.current?.abort(); } catch {}
     if (ribbonTimerRef.current) clearTimeout(ribbonTimerRef.current);
+  }, []);
+
+  // Progressive parcel enrichment. The /listings endpoint now returns
+  // instantly with only cache-hit parcel data, so the cards render right away;
+  // here we fetch the rest on demand and merge each as it arrives (acreage
+  // badges + the acreage filter fill in without blocking the initial render).
+  // Fire-and-forget, cancellable, and called exactly once per load so merging
+  // (which mutates `listings`) can't re-trigger itself.
+  const enrichParcelsInBackground = useCallback(async (items) => {
+    try { parcelAbortRef.current?.abort(); } catch {}
+    const controller = new AbortController();
+    parcelAbortRef.current = controller;
+    const need = (items || [])
+      .filter(l => !l.parcel && Number.isFinite(l.latitude) && Number.isFinite(l.longitude))
+      .map(l => ({ id: l.id, lat: l.latitude, lng: l.longitude }));
+    if (need.length === 0) return;
+    let parcels;
+    try {
+      parcels = await fetchParcels(need, controller.signal);
+    } catch (err) {
+      if (err?.name !== 'AbortError') console.error(err);
+      return;
+    }
+    if (controller.signal.aborted) return;
+    // Merge only the listings that actually resolved to a parcel.
+    setListings(prev => prev.map(l => parcels[l.id] ? { ...l, parcel: parcels[l.id] } : l));
   }, []);
 
   // Load a saved search's listings into the results pane. Stable identity
   // (only setters + the API call) so refreshSearches can depend on it.
   //
   // Deliberately simple last-write-wins. A sequence-token "drop stale
-  // response" guard was tried and REVERTED — it regressed the common case:
-  // the commercial /listings endpoint runs slow parcel enrichment (several
-  // seconds), and clicking another search before it resolved made the guard
-  // drop the result AND leave `loading` stuck true, so the grid stayed hidden
-  // behind the spinner and cards never rendered. Last-write-wins always
-  // renders; a rare out-of-order overwrite self-corrects on the next click.
+  // response" guard was tried and REVERTED — clicking another search before
+  // one resolved made the guard drop the result AND leave `loading` stuck
+  // true, so the grid stayed hidden behind the spinner and cards never
+  // rendered. Last-write-wins always renders; a rare out-of-order overwrite
+  // self-corrects on the next click.
   const handleSelectInner = useCallback(async (s) => {
     setActiveSearch(s);
     setLoading(true);
@@ -122,13 +119,15 @@ export default function ExploreView() {
     setFocusedListingId(null);
     try {
       const data = await getSearchListings(s.id);
-      setListings(data.listings || []);
+      const items = data.listings || [];
+      setListings(items);
+      enrichParcelsInBackground(items);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enrichParcelsInBackground]);
   const handleSelect = handleSelectInner;
 
   const refreshSearches = useCallback(async () => {
@@ -332,7 +331,10 @@ export default function ExploreView() {
     if (controller.signal.aborted) return;
 
     // Replace provisional listings with the final deduped set
-    if (finalListings) setListings(finalListings);
+    if (finalListings) {
+      setListings(finalListings);
+      enrichParcelsInBackground(finalListings);
+    }
     await refreshSearches();
     // Re-check after the await: an unmount or a newer run could have aborted
     // this controller while refreshSearches was in flight. Without this, the
@@ -355,13 +357,9 @@ export default function ExploreView() {
     const centroidLng = drawing.vertices.reduce((s, v) => s + v[1], 0) / drawing.vertices.length;
     // Per-mode default sqft only — acreage is now a post-scrape refinement
     // filter in the results header rather than a pre-search constraint.
-    const defaults =
-      mode === 'cabin'      ? { minSqft: 2000 } :
-      mode === 'commercial' ? { minSqft: 1500 } :
-                              { minSqft: 2500 };
     setSavePrompt({
       name: `${mode} near ${centroidLat.toFixed(2)}, ${centroidLng.toFixed(2)}`,
-      minSqft: defaults.minSqft,
+      minSqft: defaultMinSqft(mode),
       maxSqft: 0,                 // 0 = no upper bound
       mode,
     });
@@ -430,20 +428,6 @@ export default function ExploreView() {
 
   const minP = minPrice === '' ? null : Number(minPrice);
   const maxP = maxPrice === '' ? null : Number(maxPrice);
-
-  // Pull a numeric acres value from whichever signal a listing carries.
-  // Priority: county-GIS parcel (authoritative) > lot_size text ("5 acres",
-  // "217,800 sqft"). Returns null when nothing parses.
-  function listingAcres(l) {
-    if (l.parcel && Number.isFinite(+l.parcel.acres)) return +l.parcel.acres;
-    if (!l.lot_size) return null;
-    const ls = String(l.lot_size).toLowerCase();
-    const sqftM = ls.match(/([\d,.]+)\s*sqft/);
-    if (sqftM) return Number(sqftM[1].replace(/,/g, '')) / 43560;
-    const acM  = ls.match(/([\d,.]+)\s*(?:acres?|ac)\b/);
-    if (acM)   return Number(acM[1].replace(/,/g, ''));
-    return null;
-  }
 
   // Count each feature pill's hits across the pre-pill result set so the UI
   // can render "Industrial (38)" instead of bare labels. Counted over the
@@ -572,48 +556,12 @@ export default function ExploreView() {
       )}
 
       {savePrompt && (
-        <Dialog title="Save and search" labelId="save-modal-title" onClose={handleCancelSavePrompt}>
-            <label className="save-field">
-              <span>Name</span>
-              <input
-                type="text"
-                value={savePrompt.name}
-                onChange={e => setSavePrompt(p => ({ ...p, name: e.target.value }))}
-                autoFocus
-              />
-            </label>
-            <div className="save-field">
-              <span>House size range (sqft)</span>
-              <div className="save-range">
-                <select
-                  value={savePrompt.minSqft}
-                  onChange={e => setSavePrompt(p => ({ ...p, minSqft: Number(e.target.value) }))}
-                  title="Smallest house size to include"
-                >
-                  {[500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000, 7500, 10000].map(v =>
-                    <option key={v} value={v}>min {v.toLocaleString()}</option>
-                  )}
-                </select>
-                <span className="save-range-sep">to</span>
-                <select
-                  value={savePrompt.maxSqft || 0}
-                  onChange={e => setSavePrompt(p => ({ ...p, maxSqft: Number(e.target.value) }))}
-                  title="Largest house size to include (or no upper limit)"
-                >
-                  <option value={0}>no max</option>
-                  {[1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 25000, 50000, 100000].map(v =>
-                    <option key={v} value={v}>max {v.toLocaleString()}</option>
-                  )}
-                </select>
-              </div>
-            </div>
-            <div className="save-modal-actions">
-              <button className="btn" onClick={handleCancelSavePrompt}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleConfirmSave} disabled={!savePrompt.name.trim()}>
-                Save and search
-              </button>
-            </div>
-        </Dialog>
+        <SaveSearchModal
+          savePrompt={savePrompt}
+          setSavePrompt={setSavePrompt}
+          onConfirm={handleConfirmSave}
+          onCancel={handleCancelSavePrompt}
+        />
       )}
 
       <SearchSidebar
@@ -681,127 +629,14 @@ export default function ExploreView() {
           {activeSearch && (
             <div className="results-header">
               <h3>{activeSearch.name} — {filteredListings.length} of {listings.length} matches</h3>
-              <div className="results-controls">
-                <div className="filter-bar" style={{ marginBottom: 0 }}>
-                  {(FEATURES[mode] || []).map(f => {
-                    const count = featureCounts[f.key] ?? 0;
-                    const disabled = count === 0 && !featureFilters[f.key];
-                    return (
-                      <button
-                        key={f.key}
-                        className={`feature-pill ${featureFilters[f.key] ? 'active' : ''} ${disabled ? 'empty' : ''}`}
-                        onClick={() => setFeatureFilters(prev => ({ ...prev, [f.key]: !prev[f.key] }))}
-                        disabled={disabled}
-                        title={disabled
-                          ? `No listings in this area carry ${f.label.toLowerCase()}`
-                          : `${count} listing${count === 1 ? '' : 's'} match ${f.label.toLowerCase()}`}
-                      >
-                        {f.label} <span className="pill-count">({count})</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="price-filter">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="Min $"
-                    aria-label="Minimum price"
-                    value={minPrice}
-                    onChange={e => setMinPrice(e.target.value)}
-                  />
-                  <span>—</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="Max $"
-                    aria-label="Maximum price"
-                    value={maxPrice}
-                    onChange={e => setMaxPrice(e.target.value)}
-                  />
-                </div>
-                <div
-                  className="bunker-filter"
-                  role="radiogroup"
-                  aria-label="Filter results by acreage"
-                  title="Filter results by acreage. Uses the county-GIS parcel data when available, otherwise parses the listing's lot_size text. Listings without parseable acreage are hidden when any bucket is active."
-                >
-                  <span className="bunker-filter-label">Acres:</span>
-                  {[
-                    { v: null,                       label: 'Any'    },
-                    { v: { min: 0,  max: 1    },     label: '0–1'    },
-                    { v: { min: 1,  max: 5    },     label: '1–5'    },
-                    { v: { min: 5,  max: 10   },     label: '5–10'   },
-                    { v: { min: 10, max: 20   },     label: '10–20'  },
-                    { v: { min: 20, max: null },     label: '20+'    },
-                  ].map(opt => {
-                    const isActive = opt.v == null
-                      ? acreageBucket == null
-                      : acreageBucket && acreageBucket.min === opt.v.min && acreageBucket.max === opt.v.max;
-                    return (
-                      <button
-                        key={opt.label}
-                        type="button"
-                        role="radio"
-                        aria-checked={isActive}
-                        className={`tier-btn ${isActive ? 'active' : ''}`}
-                        onClick={() => setAcreageBucket(opt.v)}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {mode === 'commercial' && (
-                  <div
-                    className="bunker-filter"
-                    role="radiogroup"
-                    aria-label="Filter results by bunker fit"
-                    title="Bunker fit = our 0–10 score for how well each commercial listing matches bunker-conversion traits (underground, industrial, loading dock, 3-phase power, off-grid utilities, well/septic, concrete/reinforced). Use the buttons to hide weak candidates."
-                  >
-                    <span className="bunker-filter-label">Bunker fit:</span>
-                    {[
-                      { v: 0, label: 'Any'        },
-                      { v: 3, label: 'Promising' },
-                      { v: 6, label: 'Strong'    },
-                    ].map(opt => (
-                      <button
-                        key={opt.v}
-                        type="button"
-                        role="radio"
-                        aria-checked={minBunker === opt.v}
-                        className={`tier-btn ${minBunker === opt.v ? 'active' : ''}`}
-                        onClick={() => setMinBunker(opt.v)}
-                        title={
-                          opt.v === 0 ? 'Show every commercial listing in the area, including zero-signal ones.' :
-                          opt.v === 3 ? 'Hide pure-noise listings. Keeps industrial-tagged and similar mid-signal candidates.' :
-                                        'Only show listings with strong bunker-conversion signals (multiple matched traits).'
-                        }
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="sort-control">
-                  <select value={sortKey} onChange={e => setSortKey(e.target.value)}>
-                    <option value="price">Sort: Price</option>
-                    <option value="sqft">Sort: Sqft</option>
-                    <option value="date">Sort: Newest</option>
-                    {mode === 'commercial' && (
-                      <option value="bunker">Sort: Bunker Fit</option>
-                    )}
-                  </select>
-                  <button
-                    className="btn-sort-dir"
-                    aria-label={`Sort direction: ${sortDir === 'asc' ? 'ascending' : 'descending'}. Activate to toggle.`}
-                    onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                    title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
-                  >
-                    <span aria-hidden="true">{sortDir === 'asc' ? '↑' : '↓'}</span>
-                  </button>
-                </div>
-              </div>
+              <ResultsControls
+                mode={mode}
+                featureFilters={featureFilters} setFeatureFilters={setFeatureFilters} featureCounts={featureCounts}
+                minPrice={minPrice} setMinPrice={setMinPrice} maxPrice={maxPrice} setMaxPrice={setMaxPrice}
+                acreageBucket={acreageBucket} setAcreageBucket={setAcreageBucket}
+                minBunker={minBunker} setMinBunker={setMinBunker}
+                sortKey={sortKey} setSortKey={setSortKey} sortDir={sortDir} setSortDir={setSortDir}
+              />
             </div>
           )}
 

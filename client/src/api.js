@@ -125,6 +125,24 @@ export async function getSearchListings(id) {
   return fetchJson(`/searches/${id}/listings`);
 }
 
+/**
+ * On-demand parcel lookup for a batch of listings. `points` is
+ * [{ id, lat, lng }, …]; resolves to { [id]: parcel|null }. Used to fill in
+ * parcel badges progressively after the cards have already rendered.
+ * Accepts an optional AbortSignal so a mode/search switch can cancel it.
+ */
+export async function fetchParcels(points, signal) {
+  const res = await fetch(`${BASE}/parcels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ points }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Parcels lookup failed: ${res.status}`);
+  const data = await res.json();
+  return data.parcels || {};
+}
+
 export async function shutdownServer() {
   const res = await fetch(`${BASE}/shutdown`, { method: 'POST' });
   if (!res.ok) throw new Error(`Shutdown failed: ${res.status}`);

@@ -214,7 +214,9 @@ export async function getParcelForPoint(lat, lng) {
 
 /**
  * Bulk enrich an array of listings: in-place adds `parcel` to each listing
- * (or leaves it null if no match).
+ * (or leaves it null if no match). Hits ArcGIS for uncached points, so this
+ * can be slow — prefer enrichListingsCached for the request-blocking path and
+ * getParcelsForPoints for the on-demand endpoint.
  */
 export async function enrichListings(listings, opts = {}) {
   const concurrency = opts.concurrency ?? 4;
@@ -228,4 +230,41 @@ export async function enrichListings(listings, opts = {}) {
   }
   await Promise.all(Array.from({ length: concurrency }, worker));
   return listings;
+}
+
+/**
+ * Cache-only enrichment: attach `parcel` from the local SQLite cache only,
+ * never hitting ArcGIS. Synchronous and sub-millisecond, so the listings
+ * endpoint can respond instantly with whatever parcel data we already have;
+ * the rest is filled in on demand by the client (POST /api/parcels).
+ */
+export function enrichListingsCached(listings) {
+  for (const l of listings) {
+    l.parcel = (Number.isFinite(l.latitude) && Number.isFinite(l.longitude))
+      ? getCachedParcelForListing(l.latitude, l.longitude)
+      : null;
+  }
+  return listings;
+}
+
+/**
+ * On-demand batch lookup for the client. `points` is [{ id, lat, lng }, …];
+ * returns { [id]: parcel|null }. Cache hits are instant; misses fall back to
+ * ArcGIS (bounded concurrency). Used by POST /api/parcels so the cards can
+ * render first and parcel badges fill in progressively.
+ */
+export async function getParcelsForPoints(points, opts = {}) {
+  const concurrency = opts.concurrency ?? 4;
+  const result = {};
+  let i = 0;
+  async function worker() {
+    while (i < points.length) {
+      const idx = i++;
+      const pt = points[idx];
+      try { result[pt.id] = await getParcelForPoint(pt.lat, pt.lng); }
+      catch { result[pt.id] = null; }
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return result;
 }
