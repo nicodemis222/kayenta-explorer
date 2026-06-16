@@ -24,6 +24,12 @@ set -u
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Finder-launched apps inherit a minimal PATH — add the usual Node locations.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+# A packaged DMG ships its own Node runtime as a sibling of the bundled source
+# (Contents/Resources/node), so the app needs NO system Node. Prefer it —
+# prepend so it wins even if an (older/newer) system Node is also present.
+if [ -x "$SRC_DIR/../node/bin/node" ]; then
+  export PATH="$(cd "$SRC_DIR/../node/bin" && pwd):$PATH"
+fi
 
 notify() { /usr/bin/osascript -e "display notification \"$1\" with title \"Kayenta Explorer\"" >/dev/null 2>&1 || true; }
 
@@ -57,6 +63,7 @@ open_dashboard() {
 
 {
   echo "=== bootstrap $(date) — src=$SRC_DIR run=$RUN_DIR bundled=${KAYENTA_BUNDLED:-0} ==="
+  echo "node: $(command -v node 2>/dev/null || echo none) ($(node --version 2>/dev/null || echo n/a))"
 
   # ── 2. Node / npm present? ─────────────────────────────────────────────
   if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then

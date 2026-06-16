@@ -104,8 +104,31 @@ if [ "${KAYENTA_BUNDLE_SOURCE:-0}" = "1" ]; then
     --exclude '.git' --exclude 'node_modules' --exclude 'server/data' \
     --exclude '.web.port' --exclude '.launcher.pid' --exclude '.vite.log' \
     --exclude 'server/.port' --exclude 'server/.api.pid' --exclude '.deps-stamp' \
-    --exclude '*.dmg' --exclude '*.log' \
+    --exclude '*.dmg' --exclude '*.log' --exclude '.cache' \
     "$REPO_DIR"/ "$APP_PATH/Contents/Resources/app"/
+fi
+
+# ── 3c. Bundle a Node.js runtime (so the app needs no system Node) ────────
+if [ "${KAYENTA_BUNDLE_SOURCE:-0}" = "1" ]; then
+  NODE_VERSION="${KAYENTA_NODE_VERSION:-v22.11.0}"
+  case "$(uname -m)" in arm64) NODE_ARCH="arm64" ;; *) NODE_ARCH="x64" ;; esac
+  NODE_PKG="node-${NODE_VERSION}-darwin-${NODE_ARCH}"
+  CACHE_DIR="$REPO_DIR/.cache"; mkdir -p "$CACHE_DIR"
+  TARBALL="$CACHE_DIR/${NODE_PKG}.tar.gz"
+  if [ ! -s "$TARBALL" ]; then
+    echo "Downloading Node ${NODE_VERSION} (${NODE_ARCH})…"
+    curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_PKG}.tar.gz" -o "$TARBALL" \
+      || { echo "✗ Node download failed (need network at build time)" >&2; rm -f "$TARBALL"; exit 1; }
+  fi
+  echo "Bundling Node runtime (${NODE_PKG})…"
+  NODE_TMP="$(mktemp -d)"
+  tar -xzf "$TARBALL" -C "$NODE_TMP"
+  mkdir -p "$APP_PATH/Contents/Resources/node"
+  # bin/ (node + npm/npx symlinks) and lib/ (npm) are all that's needed at
+  # runtime — skip include/ headers and share/ docs to keep the bundle lean.
+  cp -R "$NODE_TMP/$NODE_PKG/bin" "$APP_PATH/Contents/Resources/node/"
+  cp -R "$NODE_TMP/$NODE_PKG/lib" "$APP_PATH/Contents/Resources/node/"
+  rm -rf "$NODE_TMP"
 fi
 
 # ── 4. App icon ──────────────────────────────────────────────────────────

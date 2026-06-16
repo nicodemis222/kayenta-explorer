@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build a distributable Kayenta Explorer.dmg.
 #
-# The DMG contains a self-bootstrapping .app: a fresh Mac that only has
-# Node.js installed can mount it, drag the app to Applications, and on first
-# launch the app installs its own dependencies + headless browser and starts.
-# (Node itself is NOT bundled — it's the one host prerequisite. See README.)
+# The DMG contains a self-bootstrapping .app with a BUNDLED Node runtime: a
+# fresh Mac (no Node, no anything) can mount it, drag the app to Applications,
+# and on first launch the app installs its own npm deps + headless browser and
+# starts. Only the first run needs network (for npm + Chromium).
 #
 # Steps:
 #   1. Build the client (so client/dist is bundled — first run skips it).
@@ -54,4 +54,4 @@ SIZE=$(du -h "$DMG_OUT" | awk '{print $1}')
 echo
 echo "✓ Built $DMG_OUT ($SIZE)"
 echo "  Distribute it; users drag the app to Applications and open it."
-echo "  First launch self-installs deps + Chromium (needs Node.js + network)."
+echo "  Node is bundled; first launch self-installs npm deps + Chromium (needs network)."

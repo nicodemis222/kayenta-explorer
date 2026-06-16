@@ -16,6 +16,9 @@ server/.api.pid
 .web.port
 .deps-stamp
 
+# Build cache (downloaded Node runtime tarballs for DMG packaging)
+.cache/
+
 # Editor
 .vscode/
 .idea/
