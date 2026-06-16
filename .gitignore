@@ -14,6 +14,7 @@ server/.port
 server/.api.pid
 .launcher.pid
 .web.port
+.deps-stamp
 
 # Editor
 .vscode/
