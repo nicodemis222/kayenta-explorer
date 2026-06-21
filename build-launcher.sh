@@ -167,10 +167,15 @@ else
 fi
 rm -rf "$(dirname "$ICONSET")"
 
-# ── 5. Ad-hoc sign so Gatekeeper allows it to launch ─────────────────────
-# Unsigned .app bundles get blocked on first run with "cannot be opened"
-# on modern macOS. An ad-hoc signature (identity '-') is enough for a
-# locally-built launcher.
+# ── 5. Normalize permissions, then ad-hoc sign ───────────────────────────
+# iconutil/cp can emit files without world-read under a restrictive umask;
+# a non-world-readable AppIcon.icns renders as a BROKEN icon in Finder. Make
+# every bundle file world-readable (and dirs traversable) — the standard for
+# an .app — so the icon (and the app) always load.
+chmod -R a+rX "$APP_PATH" 2>/dev/null || true
+
+# Unsigned .app bundles get blocked on first run with "cannot be opened" on
+# modern macOS. An ad-hoc signature (identity '-') is enough for a local app.
 if command -v codesign >/dev/null 2>&1; then
   # Strip resource forks / Finder xattrs that qlmanage + tempdir IO leave
   # behind; codesign refuses to operate when those are present.
@@ -178,8 +183,13 @@ if command -v codesign >/dev/null 2>&1; then
   codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1 || true
 fi
 
-# Bust Finder/LaunchServices icon cache so the new icon shows up right away.
+# Refresh Finder/LaunchServices so the icon shows up right away: re-register
+# the bundle, drop the icon-services cache, and bump the bundle mtime.
 touch "$APP_PATH"
+LSREG="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+[ -x "$LSREG" ] && "$LSREG" -f "$APP_PATH" >/dev/null 2>&1 || true
+killall iconservicesagent >/dev/null 2>&1 || true
+rm -rf "$(getconf DARWIN_USER_CACHE_DIR 2>/dev/null)"com.apple.iconservices* 2>/dev/null || true
 
 echo
 echo "✓ Built $APP_PATH"
