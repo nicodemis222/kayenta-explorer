@@ -205,6 +205,12 @@ button {
   background: #b34141;
   color: white;
 }
+/* Armed (one click already given) — solid red so the confirm step is obvious. */
+.btn-shutdown.confirm {
+  background: #b34141;
+  border-color: #b34141;
+  color: #fff;
+}
 
 .shutdown-overlay {
   position: fixed;
@@ -232,6 +238,8 @@ button {
   border-radius: 3px;
   font-size: 13px;
 }
+.shutdown-card .shutdown-icon { color: #d96a6a; margin-bottom: 8px; }
+.shutdown-card .btn { margin: 14px 0 4px; }
 .shutdown-hint { color: var(--text-muted, #888); font-size: 13px; }
 
 /* Refresh Timer */

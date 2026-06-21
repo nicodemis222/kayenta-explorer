@@ -79,10 +79,20 @@ export default function App() {
       setTimeout(() => setShutdownState(s => (s === 'confirm' ? null : s)), 4000);
       return;
     }
+    setShutdownState('powering-off');
     try {
+      // Server-side gracefulShutdown closes Chromium + the DB, kills the API +
+      // Vite dev server, frees the ports, and removes the port files. The
+      // connection drops as it exits — that thrown error is expected.
       await shutdownServer();
     } catch { /* connection drop after exit is expected */ }
     setShutdownState('done');
+    // Stop the now-pointless polling so it doesn't spam connection-refused.
+    try { window.stop?.(); } catch {}
+    // Best-effort: close the tab. Browsers only honor this for
+    // script-opened windows, so the "Powered off" overlay below is the
+    // reliable affordance when the close is blocked.
+    setTimeout(() => { try { window.close(); } catch {} }, 600);
   };
 
   const handleScrape = async () => {
@@ -130,24 +140,45 @@ export default function App() {
             {scraping ? 'Scraping...' : 'Refresh Data'}
           </button>
           <button
-            className="btn btn-shutdown"
+            className={`btn btn-shutdown ${shutdownState === 'confirm' ? 'confirm' : ''}`}
             onClick={handleShutdown}
-            disabled={shutdownState === 'done'}
-            title="Stop the server and release resources (Chromium, DB handle, port)"
+            disabled={shutdownState === 'done' || shutdownState === 'powering-off'}
+            title="Power off: close Chromium + the database, stop the server and dev server, free the localhost port"
           >
-            {shutdownState === 'confirm' ? 'Click again to confirm'
-              : shutdownState === 'done' ? 'Server stopped'
-              : 'Shut Down'}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: 6, verticalAlign: '-2px' }}>
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+              <line x1="12" y1="2" x2="12" y2="12" />
+            </svg>
+            {shutdownState === 'confirm' ? 'Click again to power off'
+              : shutdownState === 'powering-off' ? 'Powering off…'
+              : shutdownState === 'done' ? 'Powered off'
+              : 'Power Off'}
           </button>
         </div>
       </header>
 
-      {shutdownState === 'done' && (
+      {(shutdownState === 'done' || shutdownState === 'powering-off') && (
         <div className="shutdown-overlay">
           <div className="shutdown-card">
-            <h2>Server stopped</h2>
-            <p>Chromium, the database, and the port have been released. You can close this tab.</p>
-            <p className="shutdown-hint">To restart: run <code>npm run dev</code> from the project root.</p>
+            <svg className="shutdown-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+              <line x1="12" y1="2" x2="12" y2="12" />
+            </svg>
+            {shutdownState === 'powering-off' ? (
+              <>
+                <h2>Powering off…</h2>
+                <p>Closing Chromium and the database, stopping the server, freeing the port.</p>
+              </>
+            ) : (
+              <>
+                <h2>Powered off</h2>
+                <p>Memory released (Chromium + database closed), the server and dev server stopped, and localhost is no longer being served.</p>
+                <button className="btn btn-primary" onClick={() => { try { window.close(); } catch {} }}>
+                  Close this tab
+                </button>
+                <p className="shutdown-hint">If the tab doesn’t close, close it yourself. To restart, reopen <strong>Kayenta Explorer</strong> from the Desktop or Applications.</p>
+              </>
+            )}
           </div>
         </div>
       )}
