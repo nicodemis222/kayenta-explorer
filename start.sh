@@ -13,7 +13,12 @@
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f "$DIR/.env" ]; then
-  export $(grep -v '^#' "$DIR/.env" | xargs)
+  # `set -a` exports every var assigned while sourcing; safer than
+  # `export $(... | xargs)`, which word-splits values containing spaces/quotes.
+  set -a
+  # shellcheck disable=SC1090
+  . "$DIR/.env"
+  set +a
 fi
 
 WEB_PORT_PREF="${KAYENTA_WEB_PORT:-3000}"

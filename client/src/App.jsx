@@ -36,8 +36,13 @@ export default function App() {
     fetchTimer();
   }, [refreshKey, fetchTimer]);
 
-  // Tick down every second
+  // True once power-off is initiated — used to stop the polling timers so
+  // they don't fire requests at a server that's gone (avoids console spam).
+  const poweredDown = shutdownState === 'powering-off' || shutdownState === 'done';
+
+  // Tick down every second (paused once powering off).
   useEffect(() => {
+    if (poweredDown) return;
     const interval = setInterval(() => {
       setCountdown(prev => {
         if (prev === null) return null;
@@ -59,18 +64,19 @@ export default function App() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [fetchTimer]);
+  }, [fetchTimer, poweredDown]);
 
   // Clear the deferred auto-resync timer on unmount.
   useEffect(() => () => {
     if (autoResyncRef.current) clearTimeout(autoResyncRef.current);
   }, []);
 
-  // Re-sync with server every 5 min (drift correction)
+  // Re-sync with server every 5 min (drift correction; stops once powering off).
   useEffect(() => {
+    if (poweredDown) return;
     const sync = setInterval(fetchTimer, 5 * 60 * 1000);
     return () => clearInterval(sync);
-  }, [fetchTimer]);
+  }, [fetchTimer, poweredDown]);
 
   const handleShutdown = async () => {
     if (shutdownState !== 'confirm') {
@@ -79,6 +85,8 @@ export default function App() {
       setTimeout(() => setShutdownState(s => (s === 'confirm' ? null : s)), 4000);
       return;
     }
+    // Cancel the deferred auto-resync so it can't remount mid-shutdown.
+    if (autoResyncRef.current) { clearTimeout(autoResyncRef.current); autoResyncRef.current = null; }
     setShutdownState('powering-off');
     try {
       // Server-side gracefulShutdown closes Chromium + the DB, kills the API +

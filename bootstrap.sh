@@ -121,8 +121,11 @@ open_dashboard() {
       || { notify "Setup failed installing client dependencies — see .launcher.log"; exit 1; }
     SETUP_RAN=1
   fi
-  # Record current locks so a later dependency change is detected.
-  [ -n "$DEPS_HASH" ] && echo "$DEPS_HASH" > .deps-stamp 2>/dev/null || true
+  # Record current locks so a later dependency change is detected. Explicit
+  # if (not A && B || C) so a failed write can't be misread as the guard.
+  if [ -n "$DEPS_HASH" ]; then
+    echo "$DEPS_HASH" > .deps-stamp 2>/dev/null || true
+  fi
 
   # ── 6. Client production build ─────────────────────────────────────────
   if [ ! -f client/dist/index.html ]; then
